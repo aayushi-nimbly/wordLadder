@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, create_engine
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 DB_URL = os.environ.get("WORDLADDER_DB", "sqlite:///./wordladder.db")
@@ -46,6 +46,7 @@ class Game(Base):
     stars: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    reminded_at: Mapped[datetime | None]  # last "still your turn" reminder
 
     seats: Mapped[list[GamePlayer]] = relationship(
         back_populates="game", order_by="GamePlayer.seat", cascade="all, delete-orphan"
@@ -82,6 +83,19 @@ class Move(Base):
     game: Mapped[Game] = relationship(back_populates="moves")
 
 
+class PushSubscription(Base):
+    """One browser or installed app that agreed to receive notifications."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 engine = create_engine(
     DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
 )
@@ -90,6 +104,19 @@ SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """create_all doesn't touch existing tables; add new nullable columns so old databases keep working."""
+    existing = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            have = {c["name"] for c in existing.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have and col.nullable:
+                    kind = col.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {kind}'))
 
 
 def get_db():
@@ -97,4 +124,4 @@ def get_db():
         yield session
 
 
-__all__ = ["Base", "Game", "GamePlayer", "Move", "Player", "Session", "get_db", "init_db"]
+__all__ = ["Base", "Game", "GamePlayer", "Move", "Player", "PushSubscription", "Session", "get_db", "init_db"]

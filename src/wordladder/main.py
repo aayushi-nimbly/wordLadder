@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import engine, rules
-from .db import Game, GamePlayer, Player, SessionLocal, get_db, init_db
+from . import engine, push, rules
+from .db import Game, GamePlayer, Player, PushSubscription, SessionLocal, get_db, init_db
 from .realtime import hub
 
 STATIC = Path(__file__).parent / "static"
@@ -29,7 +30,10 @@ async def lifespan(app: FastAPI):
     init_db()
     for n in engine.LENGTHS:  # build word graphs before the first request
         engine.graph(n)
+    push.vapid()
+    reminders = asyncio.create_task(push.reminder_loop())
     yield
+    reminders.cancel()
 
 
 app = FastAPI(title="Word Ladder", lifespan=lifespan)
@@ -137,6 +141,12 @@ def _view(game: Game, player: Player) -> dict:
     return rules.view(game, player, hub.online(game.code))
 
 
+def _notify(bg: BackgroundTasks, game: Game, actor: Player, event: str, new_game: Game | None = None) -> None:
+    notes = push.notes_for(game, actor.id, event, hub.online(game.code), new_game)
+    if notes:
+        bg.add_task(push.send_now, notes)
+
+
 class NewGameIn(BaseModel):
     mode: str
     length: int
@@ -193,10 +203,11 @@ def get_game(code: str, player: Me, db: DB):
 
 
 @app.post("/api/games/{code}/join")
-async def join(code: str, player: Me, db: DB):
+async def join(code: str, player: Me, db: DB, bg: BackgroundTasks):
     game = _load(db, code)
     rules.join_game(db, game, player)
     await hub.send_state(game)
+    _notify(bg, game, player, "joined")
     return _view(game, player)
 
 
@@ -205,10 +216,11 @@ class MoveIn(BaseModel):
 
 
 @app.post("/api/games/{code}/moves")
-async def move(code: str, body: MoveIn, player: Me, db: DB):
+async def move(code: str, body: MoveIn, player: Me, db: DB, bg: BackgroundTasks):
     game = _load(db, code)
     rules.play_move(db, game, player, body.word)
     await hub.send_state(game)
+    _notify(bg, game, player, "move")
     return _view(game, player)
 
 
@@ -229,10 +241,11 @@ async def hint(code: str, player: Me, db: DB):
 
 
 @app.post("/api/games/{code}/give-up")
-async def give_up(code: str, player: Me, db: DB):
+async def give_up(code: str, player: Me, db: DB, bg: BackgroundTasks):
     game = _load(db, code)
     rules.give_up(db, game, player)
     await hub.send_state(game)
+    _notify(bg, game, player, "gave_up")
     return _view(game, player)
 
 
@@ -242,13 +255,68 @@ class AgainIn(BaseModel):
 
 
 @app.post("/api/games/{code}/again")
-async def again(code: str, body: AgainIn, player: Me, db: DB):
+async def again(code: str, body: AgainIn, player: Me, db: DB, bg: BackgroundTasks):
     old = _load(db, code)
     new = rules.play_again(
         db, old, player, body.length or old.length, body.difficulty or old.difficulty or "medium"
     )
     await hub.send_event(old.code, {"type": "again", "code": new.code, "by": player.name}, except_player=player)
+    _notify(bg, old, player, "again", new)
     return _view(new, player)
+
+
+# ---------- notifications ----------
+
+
+@app.get("/api/push/key")
+def push_key():
+    return {"key": push.public_key()}
+
+
+class SubKeys(BaseModel):
+    p256dh: str = Field(max_length=200)
+    auth: str = Field(max_length=100)
+
+
+class SubscriptionIn(BaseModel):
+    endpoint: str = Field(min_length=10, max_length=2000)
+    keys: SubKeys
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(body: SubscriptionIn, player: Me, db: DB):
+    if not body.endpoint.startswith("https://"):
+        raise HTTPException(400, "That isn't a push subscription.")
+    sub = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
+    if sub is None:
+        sub = PushSubscription(endpoint=body.endpoint)
+        db.add(sub)
+    sub.player_id = player.id  # a device belongs to whoever last used it
+    sub.p256dh, sub.auth = body.keys.p256dh, body.keys.auth
+    db.commit()
+    return {"ok": True}
+
+
+class EndpointIn(BaseModel):
+    endpoint: str
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: EndpointIn, player: Me, db: DB):
+    sub = db.scalar(select(PushSubscription).where(
+        PushSubscription.endpoint == body.endpoint, PushSubscription.player_id == player.id
+    ))
+    if sub:
+        db.delete(sub)
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/push/test")
+async def push_test(player: Me):
+    sent = await push.send([push.Note(player.id, "Notifications are on",
+                                      "We'll tell you when it's your turn.", "/", "test")])
+    return {"sent": sent}
 
 
 @app.websocket("/ws/games/{code}")

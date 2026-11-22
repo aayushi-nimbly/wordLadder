@@ -71,6 +71,57 @@ async function copy(text) {
   }
 }
 
+// ---------- notifications ----------
+
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+// unsupported | install-first (iPhone outside the home-screen app) | default | granted | denied
+function pushStatus() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    return isIOS && !isStandalone() ? "install-first" : "unsupported";
+  }
+  return Notification.permission;
+}
+
+function keyBytes(b64) {
+  const raw = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+// Makes sure this device is subscribed and linked to the current player.
+// Only asks for permission when `ask` is set, which must come from a tap.
+async function syncPush({ ask = false } = {}) {
+  let status = pushStatus();
+  if (status === "default" && ask) status = await Notification.requestPermission();
+  if (status !== "granted") return status;
+  const reg = await navigator.serviceWorker.ready;
+  const { key } = await api("/api/push/key");
+  let sub = await reg.pushManager.getSubscription();
+  const subKey = sub?.options?.applicationServerKey;
+  if (sub && subKey && btoa(String.fromCharCode(...new Uint8Array(subKey))) !== btoa(String.fromCharCode(...keyBytes(key)))) {
+    await sub.unsubscribe();  // the server's key changed
+    sub = null;
+  }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+  await api("/api/push/subscribe", { method: "POST", body: sub.toJSON() });
+  return "granted";
+}
+
+function notifyPrompt({ showBlocked = false } = {}) {
+  const status = pushStatus();
+  if (status === "install-first") {
+    return `<div class="banner"><span class="small"><b>Get turn alerts on iPhone:</b> tap the Share button, then <b>Add to Home Screen</b>. Open Word Ladder from your home screen and turn on notifications there.</span></div>`;
+  }
+  if (status === "default") {
+    return `<div class="banner"><span><b>Know when it's your turn</b><br><span class="small">Get a notification when your friend plays.</span></span><button class="btn blue" data-action="enable-push">Turn on</button></div>`;
+  }
+  if (status === "denied" && showBlocked) {
+    return `<p class="muted small" style="margin:0">Notifications are blocked for this site. Allow them in your browser settings to hear when it's your turn.</p>`;
+  }
+  return "";
+}
+
 // ---------- routing ----------
 
 function go(path, { replace = false } = {}) {
@@ -88,6 +139,7 @@ async function route() {
   if (!state.me) {
     try {
       state.me = await api("/api/me");
+      syncPush().catch(() => {});
     } catch (e) {
       if (e.status !== 401) return renderError(e.message);
       let invite = null;
@@ -159,15 +211,9 @@ async function renderHome() {
         ${right}
       </a>`;
   };
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  const install = standalone
-    ? ""
-    : state.installPrompt
-      ? `<div class="banner"><span><b>Install Word Ladder</b><br><span class="small">Open it from your home screen like an app.</span></span><button class="btn blue" data-action="install">Install</button></div>`
-      : isIOS
-        ? `<div class="banner"><span class="small"><b>Install on iPhone:</b> tap the Share button, then <b>Add to Home Screen</b>.</span></div>`
-        : "";
+  const install = !isStandalone() && state.installPrompt
+    ? `<div class="banner"><span><b>Install Word Ladder</b><br><span class="small">Open it from your home screen like an app.</span></span><button class="btn blue" data-action="install">Install</button></div>`
+    : "";
 
   app.innerHTML = `
     <main class="screen">
@@ -184,6 +230,7 @@ async function renderHome() {
         <button class="btn ghost" type="submit">Join</button>
       </form>
       ${install}
+      ${notifyPrompt({ showBlocked: true })}
       <section class="stack">
         <span class="label">Your games</span>
         <div class="list">${games.active.length ? games.active.map(row).join("") : `<div class="empty">No games in progress. Start one above.</div>`}</div>
@@ -438,6 +485,7 @@ function drawInvite(g) {
         <span class="muted small">par ${g.par}</span>
         ${tiles(g.end, { cls: "small end" })}
       </div>
+      ${notifyPrompt()}
       <p class="muted pulse" style="text-align:center;margin-top:auto">● Waiting for your friend to join…</p>
       <button class="linkish" data-action="give-up" style="align-self:center">Cancel this game</button>
     </main>`;
@@ -480,6 +528,7 @@ function drawPlay(g) {
           ? "They have the game open. Their word will appear here."
           : `They're away right now. Their word will show up here when they play. Last move ${ago(g.updated_at)}.`}</p>
         ${partner?.online ? "" : `<button class="btn quiet" data-action="copy-invite">Copy game link to remind them</button>`}
+        ${notifyPrompt()}
         <a class="linkish" href="/" data-link>Back to my games</a>
       </div>`;
 
@@ -654,6 +703,22 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
+  async "enable-push"(el) {
+    el.disabled = true;
+    try {
+      const result = await syncPush({ ask: true });
+      if (result === "granted") {
+        toast("Notifications are on");
+        api("/api/push/test", { method: "POST" }).catch(() => {});
+      } else if (result === "denied") {
+        toast("Notifications are blocked. You can allow them in your browser settings.");
+      }
+    } catch (e) {
+      toast(`Couldn't turn on notifications: ${e.message}`);
+    }
+    if (state.game && location.pathname.startsWith("/g/")) drawGame();
+    else if (location.pathname === "/") renderHome();
+  },
   async "share-invite"() {
     const g = state.game;
     try {

@@ -5,3 +5,4 @@ __pycache__/
 *.db
 *.db-journal
 .DS_Store
+.vapid_private.pem

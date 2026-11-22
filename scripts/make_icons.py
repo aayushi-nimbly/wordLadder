@@ -43,12 +43,28 @@ def draw(size: int, maskable: bool = False, rounded: bool = True) -> Image.Image
     return img
 
 
+def badge(size: int) -> Image.Image:
+    """Monochrome status-bar icon for Android: white tiles on transparent."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    pad, gap = size * 0.12, size * 0.08
+    cell = (size - 2 * pad - 2 * gap) / 3
+    # a three-rung staircase of tiles
+    for r in range(3):
+        for c in range(3 - r):
+            x0 = pad + (c + r) * (cell + gap)
+            y0 = pad + r * (cell + gap)
+            d.rounded_rectangle((x0, y0, x0 + cell, y0 + cell), radius=cell * 0.2, fill=(255, 255, 255, 255))
+    return img
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     draw(192).save(OUT / "icon-192.png")
     draw(512).save(OUT / "icon-512.png")
     draw(512, maskable=True).save(OUT / "icon-maskable-512.png")
     draw(180, rounded=False).save(OUT / "apple-touch-icon.png")  # iOS rounds it itself
+    badge(96).save(OUT / "badge-96.png")
     print("Icons written to", OUT)
 
 

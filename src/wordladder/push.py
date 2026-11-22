@@ -1,0 +1,196 @@
+"""Phone notifications via Web Push: "your turn", "friend joined", reminders.
+
+The server signs each push with a VAPID key pair. Locally the private key is created on first
+use in .vapid_private.pem (git-ignored). In production set WORDLADDER_VAPID_PRIVATE_KEY to the
+raw key printed by `uv run python -m wordladder.push`, and WORDLADDER_VAPID_SUBJECT to the
+site's address.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+import os
+from dataclasses import dataclass
+from datetime import timedelta
+from functools import lru_cache
+from pathlib import Path
+
+from cryptography.hazmat.primitives import serialization
+from py_vapid import Vapid02
+from pywebpush import WebPushException, webpush
+from sqlalchemy import select
+
+from .db import Game, PushSubscription, SessionLocal, utcnow
+
+log = logging.getLogger(__name__)
+
+KEY_FILE = Path(os.environ.get("WORDLADDER_VAPID_FILE", ".vapid_private.pem"))
+# Push services require a sender contact: a bare https://host or mailto: address. Set this to the
+# deployed site's address in production (Apple rejects localhost).
+SUBJECT = os.environ.get("WORDLADDER_VAPID_SUBJECT", "https://localhost")
+REMIND_AFTER = timedelta(hours=24)
+REMINDER_CHECK_SECONDS = 15 * 60
+
+
+@dataclass(frozen=True)
+class Note:
+    player_id: int
+    title: str
+    body: str
+    url: str
+    tag: str
+
+
+# ---------- keys ----------
+
+
+@lru_cache(maxsize=None)
+def vapid() -> Vapid02:
+    raw = os.environ.get("WORDLADDER_VAPID_PRIVATE_KEY")
+    if raw:
+        return Vapid02.from_raw(raw.encode())
+    if KEY_FILE.exists():
+        return Vapid02.from_file(str(KEY_FILE))
+    v = Vapid02()
+    v.generate_keys()
+    v.save_key(str(KEY_FILE))
+    return v
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def public_key() -> str:
+    """The key browsers need to subscribe (applicationServerKey)."""
+    return _b64(vapid().public_key.public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    ))
+
+
+def raw_private_key() -> str:
+    return _b64(vapid().private_key.private_numbers().private_value.to_bytes(32, "big"))
+
+
+# ---------- who gets told what ----------
+
+
+def _w(word: str) -> str:
+    return word.upper()
+
+
+def notes_for(game: Game, actor_id: int, event: str, online: set[int], new_game: Game | None = None) -> list[Note]:
+    """Notifications to send after `actor_id` did `event` in `game`.
+
+    Players who have this game open right now see it live, so they're skipped.
+    """
+    if game.mode != "team":
+        return []
+    actor = next((s.player for s in game.seats if s.player_id == actor_id), None)
+    name = actor.name if actor else "Your friend"
+    others = [s for s in game.seats if s.player_id != actor_id and s.player_id not in online]
+    url, tag = f"/g/{game.code}", f"game-{game.code}"
+    ladder = f"{_w(game.start_word)} → {_w(game.end_word)}"
+    notes = []
+    for seat in others:
+        pid = seat.player_id
+        if event == "joined":
+            notes.append(Note(pid, f"{name} joined", f"{ladder} is ready. It's your turn.", url, tag))
+        elif event == "move" and game.status == "won":
+            stars = "★" * (game.stars or 0) + "☆" * (3 - (game.stars or 0))
+            notes.append(Note(pid, f"You did it together {stars}",
+                              f"{name} played {_w(game.end_word)} and finished in {game.steps_used} steps.", url, tag))
+        elif event == "move" and seat.seat == game.turn_seat:
+            last = next(m.word for m in reversed(game.moves) if not m.undone)
+            notes.append(Note(pid, "Your turn", f"{name} played {_w(last)}. Keep climbing to {_w(game.end_word)}.", url, tag))
+        elif event == "gave_up":
+            notes.append(Note(pid, f"{name} ended the ladder", f"{ladder}. See the shortest path.", url, tag))
+        elif event == "again" and new_game is not None:
+            notes.append(Note(pid, f"{name} started a new ladder",
+                              f"{_w(new_game.start_word)} → {_w(new_game.end_word)}. {name} goes first.",
+                              f"/g/{new_game.code}", f"game-{new_game.code}"))
+    return notes
+
+
+def reminder_for(game: Game) -> Note | None:
+    turn = next((s for s in game.seats if s.seat == game.turn_seat), None)
+    partner = next((s for s in game.seats if s.seat != game.turn_seat), None)
+    if turn is None or partner is None:
+        return None
+    return Note(turn.player_id, f"{partner.player.name} is waiting for your word",
+                f"{_w(game.start_word)} → {_w(game.end_word)} · it's your turn.", f"/g/{game.code}", f"game-{game.code}")
+
+
+# ---------- sending ----------
+
+
+def send_now(notes: list[Note]) -> int:
+    """Deliver notes to every device each player subscribed. Returns how many pushes were accepted."""
+    if not notes:
+        return 0
+    sent = 0
+    with SessionLocal() as db:
+        for note in notes:
+            subs = db.scalars(select(PushSubscription).where(PushSubscription.player_id == note.player_id)).all()
+            payload = json.dumps({"title": note.title, "body": note.body, "url": note.url, "tag": note.tag})
+            for sub in subs:
+                try:
+                    webpush(
+                        {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}},
+                        payload,
+                        vapid_private_key=vapid(),
+                        vapid_claims={"sub": SUBJECT},
+                        ttl=60 * 60 * 24,
+                        timeout=10,
+                    )
+                    sent += 1
+                except WebPushException as e:
+                    status = getattr(e.response, "status_code", None)
+                    if status in (404, 410):  # the browser unsubscribed or the app was removed
+                        db.delete(sub)
+                    else:
+                        log.warning("Push failed (%s): %s", status, e)
+                except Exception as e:  # network trouble shouldn't break a move
+                    log.warning("Push failed: %s", e)
+        db.commit()
+    return sent
+
+
+async def send(notes: list[Note]) -> int:
+    return await asyncio.to_thread(send_now, notes)
+
+
+def due_reminders() -> list[Note]:
+    """One reminder per turn, once a team game has waited REMIND_AFTER for the same player."""
+    now = utcnow()
+    notes = []
+    with SessionLocal() as db:
+        games = db.scalars(
+            select(Game).where(Game.mode == "team", Game.status == "active", Game.updated_at < now - REMIND_AFTER)
+        ).all()
+        for game in games:
+            if game.reminded_at and game.reminded_at > game.updated_at:
+                continue
+            note = reminder_for(game)
+            if note:
+                notes.append(note)
+            game.reminded_at = now
+        db.commit()
+    return notes
+
+
+async def reminder_loop() -> None:
+    while True:
+        try:
+            await send(await asyncio.to_thread(due_reminders))
+        except Exception:
+            log.exception("Reminder check failed")
+        await asyncio.sleep(REMINDER_CHECK_SECONDS)
+
+
+if __name__ == "__main__":
+    print("Public key: ", public_key())
+    print("WORDLADDER_VAPID_PRIVATE_KEY=" + raw_private_key())
