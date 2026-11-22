@@ -54,10 +54,13 @@ function ago(iso) {
 const starText = (n) => "★".repeat(n || 0) + "☆".repeat(3 - (n || 0));
 const inviteUrl = (code) => `${location.origin}/j/${code}`;
 
-function tiles(word, { prev = null, seat = null, cls = "" } = {}) {
+// prev: the rung above, so the changed letter gets the player's colour.
+// target: the end word, so letters already in the right place turn green.
+function tiles(word, { prev = null, seat = null, target = null, cls = "" } = {}) {
   const letters = [...word].map((ch, i) => {
-    const changed = prev && prev[i] !== ch;
-    return `<span class="t${changed && seat ? ` s${seat}` : ""}">${esc(ch)}</span>`;
+    const changed = prev && prev[i] !== ch && seat;
+    const hit = target && target[i] === ch;
+    return `<span class="t${changed ? ` s${seat}` : ""}${hit ? " hit" : ""}">${esc(ch)}</span>`;
   });
   return `<div class="tiles ${cls}">${letters.join("")}</div>`;
 }
@@ -247,8 +250,13 @@ async function renderHome() {
 
 // ---------- setup ----------
 
+const EXAMPLES = { 4: ["cold", "warm"], 5: ["stone", "money"], 6: ["winter", "summer"] };
+
 function renderSetup(mode) {
-  state.setup = { mode, length: 5, difficulty: "medium", start: "", end: "", par: null, error: null, checking: false };
+  state.setup = {
+    mode, length: 5, difficulty: "medium", source: "suggest",
+    start: "", end: "", par: null, error: null, checking: false,
+  };
   drawSetup();
   suggest();
 }
@@ -259,6 +267,34 @@ function drawSetup() {
     <div class="seg" role="group" aria-label="${name}">
       ${values.map((v, i) => `<button type="button" data-action="setup" data-key="${name}" data-value="${v}" aria-pressed="${v === current}">${labels[i]}</button>`).join("")}
     </div>`;
+  const [exStart, exEnd] = EXAMPLES[s.length];
+  const words = s.source === "suggest"
+    ? `
+      <div class="field"><span class="label">Difficulty</span>${seg("difficulty", ["easy", "medium", "hard"], s.difficulty, ["Easy", "Medium", "Hard"])}</div>
+      <div class="card stack picked" aria-live="polite">
+        <div class="picked-words">
+          <div class="field"><span class="label">Start</span><div id="pick-start">${s.start ? tiles(s.start, { target: s.end }) : ""}</div></div>
+          <div class="field"><span class="label">End</span><div id="pick-end">${s.end ? tiles(s.end, { cls: "end" }) : ""}</div></div>
+        </div>
+        <div class="row" style="align-items:center">
+          <span id="puzzle-status" class="badge"></span>
+          <button type="button" class="btn quiet" data-action="suggest" style="flex:0 0 auto">↻ Other words</button>
+        </div>
+      </div>`
+    : `
+      <div class="field">
+        <label class="label" for="start">Start word</label>
+        <input class="input word-input" id="start" name="start" maxlength="${s.length}" value="${esc(s.start)}"
+          placeholder="Type a word, e.g. ${exStart}" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="next">
+      </div>
+      <div class="field">
+        <label class="label" for="end">End word</label>
+        <input class="input word-input" id="end" name="end" maxlength="${s.length}" value="${esc(s.end)}"
+          placeholder="Type a word, e.g. ${exEnd}" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="done">
+      </div>
+      <p class="muted small" style="margin:0">Any two real ${s.length}-letter words. We'll check there's a ladder between them.</p>
+      <span id="puzzle-status" class="badge"></span>`;
+
   app.innerHTML = `
     <main class="screen">
       <div class="top">
@@ -267,21 +303,9 @@ function drawSetup() {
         <span style="width:24px"></span>
       </div>
       <div class="field"><span class="label">Letters</span>${seg("length", [4, 5, 6], s.length)}</div>
-      <div class="field"><span class="label">Difficulty</span>${seg("difficulty", ["easy", "medium", "hard"], s.difficulty, ["Easy", "Medium", "Hard"])}</div>
+      <div class="field"><span class="label">Words</span>${seg("source", ["suggest", "own"], s.source, ["✨ Suggest for me", "✏️ Choose my own"])}</div>
       <form class="stack" data-form="setup">
-        <div class="field">
-          <label class="label" for="start">Start word</label>
-          <input class="input word-input" id="start" name="start" maxlength="${s.length}" value="${esc(s.start)}" autocomplete="off" autocapitalize="none" spellcheck="false">
-        </div>
-        <div class="field">
-          <label class="label" for="end">End word</label>
-          <input class="input word-input" id="end" name="end" maxlength="${s.length}" value="${esc(s.end)}" autocomplete="off" autocapitalize="none" spellcheck="false">
-        </div>
-        <div class="row" style="align-items:center">
-          <span id="puzzle-status" class="badge"></span>
-          <button type="button" class="btn quiet" data-action="suggest" style="flex:0 0 auto">↻ Suggest again</button>
-        </div>
-        <p class="muted small" style="margin:0">Use our suggestion or type your own words.</p>
+        ${words}
         <button class="btn${s.mode === "team" ? " blue" : ""}" id="setup-go" type="submit" style="margin-top:8px">
           ${s.mode === "solo" ? "Start game" : "Create invite"}
         </button>
@@ -295,9 +319,9 @@ function drawSetupStatus() {
   const el = document.getElementById("puzzle-status");
   const goBtn = document.getElementById("setup-go");
   if (!el) return;
-  if (s.checking) { el.className = "badge"; el.textContent = "Checking…"; }
+  if (s.checking) { el.className = "badge"; el.textContent = s.source === "suggest" ? "Finding words…" : "Checking…"; }
   else if (s.error) { el.className = "badge bad"; el.textContent = s.error; }
-  else if (s.par) { el.className = "badge ok"; el.textContent = `✓ Solvable · par ${s.par}`; }
+  else if (s.par) { el.className = "badge ok"; el.textContent = `✓ Can be done in ${s.par} steps`; }
   else { el.className = "badge"; el.textContent = ""; }
   goBtn.disabled = !s.par || s.checking;
 }
@@ -309,8 +333,8 @@ async function suggest() {
   try {
     const p = await api(`/api/suggest?length=${s.length}&difficulty=${s.difficulty}`);
     Object.assign(s, { start: p.start, end: p.end, par: p.par, checking: false });
-    document.getElementById("start").value = p.start;
-    document.getElementById("end").value = p.end;
+    document.getElementById("pick-start").innerHTML = tiles(p.start, { target: p.end });
+    document.getElementById("pick-end").innerHTML = tiles(p.end, { cls: "end" });
   } catch (e) {
     Object.assign(s, { checking: false, error: e.message });
   }
@@ -325,7 +349,7 @@ function onSetupInput() {
   s.par = null; s.error = null;
   clearTimeout(checkTimer);
   if (s.start.length !== s.length || s.end.length !== s.length) {
-    s.error = `Both words need ${s.length} letters.`;
+    s.error = s.start && s.end ? `Both words need ${s.length} letters.` : null;
     return drawSetupStatus();
   }
   s.checking = true;
@@ -349,7 +373,10 @@ async function startGame() {
   try {
     const g = await api("/api/games", {
       method: "POST",
-      body: { mode: s.mode, length: s.length, difficulty: s.difficulty, start: s.start, end: s.end },
+      body: {
+        mode: s.mode, length: s.length, start: s.start, end: s.end,
+        difficulty: s.source === "suggest" ? s.difficulty : null,
+      },
     });
     go(`/g/${g.code}`, { replace: true });
   } catch (e) {
@@ -457,7 +484,7 @@ function drawJoin(g) {
       <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} invited you</h1>
       <p class="muted">Take turns adding one word each. Get from the start word to the end word together.</p>
       <div class="stack" style="align-items:center">
-        ${tiles(g.start)}
+        ${tiles(g.start, { target: g.end })}
         <span class="muted">to</span>
         ${tiles(g.end, { cls: "end" })}
       </div>
@@ -483,7 +510,7 @@ function drawInvite(g) {
       <p class="muted small" style="text-align:center;margin:0">Send the link in any chat. Your friend taps it, types a name and joins. No signup.</p>
       <div class="card stack" style="align-items:center">
         <span class="label">Your ladder</span>
-        ${tiles(g.start, { cls: "small" })}
+        ${tiles(g.start, { target: g.end, cls: "small" })}
         <span class="muted small">par ${g.par}</span>
         ${tiles(g.end, { cls: "small end" })}
       </div>
@@ -505,9 +532,9 @@ function drawPlay(g) {
     </div>`).join("");
 
   let prev = g.start;
-  const rungs = [tiles(g.start)];
+  const rungs = [tiles(g.start, { target: g.end })];
   g.ladder.forEach((m, i) => {
-    rungs.push(tiles(m.word, { prev, seat: m.seat, cls: i === g.ladder.length - 1 ? "rung-new" : "" }));
+    rungs.push(tiles(m.word, { prev, seat: m.seat, target: g.end, cls: i === g.ladder.length - 1 ? "rung-new" : "" }));
     prev = m.word;
   });
   if (g.my_turn) rungs.push(`<div id="entry"></div>`);
@@ -636,8 +663,8 @@ function drawResult(g) {
   const team = g.mode === "team";
   const partner = g.players.find((p) => !p.me);
   let prev = g.start;
-  const played = [tiles(g.start, { cls: "small" })];
-  for (const m of g.ladder) { played.push(tiles(m.word, { prev, seat: m.seat, cls: "small" })); prev = m.word; }
+  const played = [tiles(g.start, { target: g.end, cls: "small" })];
+  for (const m of g.ladder) { played.push(tiles(m.word, { prev, seat: m.seat, target: g.end, cls: "small" })); prev = m.word; }
   if (won) played[played.length - 1] = tiles(g.end, { cls: "small end" });
   const counts = g.players.map((p) => ({ ...p, n: g.ladder.filter((m) => m.seat === p.seat).length }));
   const stars = g.stars ?? 0;
@@ -661,7 +688,7 @@ function drawResult(g) {
       <details class="card">
         <summary><b>Shortest possible ladder</b> <span class="muted">(${g.par} steps)</span></summary>
         <div class="mini-ladder" style="margin-top:12px">
-          ${(g.solution ?? []).map((w, i, a) => tiles(w, { cls: i === a.length - 1 ? "small end" : "small" })).join("")}
+          ${(g.solution ?? []).map((w, i, a) => tiles(w, { target: g.end, cls: i === a.length - 1 ? "small end" : "small" })).join("")}
         </div>
       </details>
       <div class="row" style="margin-top:auto">
@@ -688,9 +715,10 @@ const actions = {
     const s = state.setup;
     const v = el.dataset.value;
     s[el.dataset.key] = el.dataset.key === "length" ? Number(v) : v;
-    s.start = ""; s.end = ""; s.par = null;
+    s.start = ""; s.end = ""; s.par = null; s.error = null;
     drawSetup();
-    suggest();
+    if (s.source === "suggest") suggest();
+    else document.getElementById("start").focus();
   },
   suggest() { suggest(); },
   async join() {

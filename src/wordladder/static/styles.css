@@ -5,6 +5,7 @@
   --p1: #d95f22; --p1-soft: #fbe5d9; --p2: #3a52c4; --p2-soft: #e1e6fa;
   --tile: #ffffff; --tile-ink: #18212b; --ok: #23845a; --bad: #c23b3b; --gold: #e0a419;
   --on-accent: #ffffff;
+  --hit: #2e9b5b; --on-hit: #ffffff;
   --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
   --body: "Atkinson Hyperlegible", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -17,6 +18,7 @@
     --p1: #f08a52; --p1-soft: #3a2418; --p2: #8597ff; --p2-soft: #1f2648;
     --tile: #212b36; --tile-ink: #eef2f6; --ok: #4cc28d; --bad: #ef6b6b; --gold: #f2c14e;
     --on-accent: #11161c;
+    --hit: #2f8f57; --on-hit: #ffffff;
     color-scheme: dark;
   }
 }
@@ -90,6 +92,14 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 
+.picked-words { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.picked-words .field { align-items: center; }
+.picked-words .tiles { --tile-size: clamp(34px, 9vw, 44px); }
+.picked .row { flex-wrap: wrap; justify-content: space-between; }
+.picked .row > * { flex: 0 1 auto; }
+.word-input::placeholder {
+  font: 400 1rem var(--body); letter-spacing: normal; text-transform: none; color: var(--muted); opacity: .7;
+}
 .badge { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; font-weight: 700; color: var(--muted); min-height: 24px; }
 .badge.ok { color: var(--ok); }
 .badge.bad { color: var(--bad); }
@@ -121,6 +131,10 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 }
 .t.s1 { border-color: var(--p1); background: var(--p1-soft); }
 .t.s2 { border-color: var(--p2); background: var(--p2-soft); }
+/* Right letter in the right place. A player's border still shows who changed it. */
+.t.hit { background: var(--hit); color: var(--on-hit); border-color: var(--hit); }
+.t.hit.s1 { border-color: var(--p1); }
+.t.hit.s2 { border-color: var(--p2); }
 .end .t, .t.end { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .tiles.small .t { --tile-size: 30px; border-radius: 6px; border-width: 1.5px; }
 .entry .t { border-style: dashed; border-color: var(--p1); }

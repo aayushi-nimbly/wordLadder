@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so it opens instantly from the home screen.
 // Game data (/api, /ws) always goes to the network. Also shows "your turn" notifications.
 
-const CACHE = "wordladder-v3";
+const CACHE = "wordladder-v4";
 const SHELL = [
   "/",
   "/static/styles.css",
