@@ -146,8 +146,8 @@ engine = create_engine(
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
-# Bump to wipe every table once on the next start. "2": fresh start when accounts arrived (Nov 2026).
-DATA_VERSION = "2"
+# Bump to wipe every table once on the next start. "3": fresh start for Google sign-in (Nov 2026).
+DATA_VERSION = "3"
 
 
 def init_db(eng=None) -> None:
