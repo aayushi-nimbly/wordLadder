@@ -256,7 +256,7 @@ async function renderHome() {
           <button class="linkish" data-action="rename">Hi, ${esc(state.me.name)}</button>
         </span>
       </div>
-      ${games.active.length || games.finished.length || state.daily?.puzzles.some((p) => p.mine) ? "" : `
+      ${games.active.length || games.finished.length || state.daily?.mine ? "" : `
         <a class="banner" href="/help" data-link style="text-decoration:none">
           <span><b>New to word ladders?</b><br><span class="small">See how to play in 30 seconds.</span></span><b aria-hidden="true">→</b>
         </a>`}
@@ -796,22 +796,12 @@ function drawRaceResult(g) {
 
 const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
-function dailyLength() {
-  try { return Number(localStorage.getItem("wl-daily-length")) || 5; } catch { return 5; }
-}
-
 function dailyCard() {
   const d = state.daily;
   if (!d) return `<span class="muted small">Daily ladder unavailable right now.</span>`;
-  const n = dailyLength();
-  const p = d.puzzles.find((x) => x.length === n);
-  const m = p.mine;
+  const m = d.mine;
   const hours = Math.floor(d.resets_in / 3600);
   const resets = hours ? `new in ${hours}h` : `new in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
-  const lengths = d.puzzles.map((x) => {
-    const done = x.mine?.status === "finished" ? " ✓" : "";
-    return `<button type="button" data-action="daily-length" data-value="${x.length}" aria-pressed="${x.length === n}">${x.length}${done}</button>`;
-  }).join("");
   let body;
   if (m?.status === "finished" && !m.gave_up) {
     body = `
@@ -824,21 +814,20 @@ function dailyCard() {
         <a class="btn quiet" href="/g/${m.code}" data-link>My ladder</a>
       </div>`;
   } else if (m?.gave_up) {
-    body = `<p class="small muted" style="margin:0">You gave up on today's ${n}-letter ladder.</p>
+    body = `<p class="small muted" style="margin:0">You gave up on today's ladder. A new one comes at midnight.</p>
       <a class="btn quiet" href="/leaderboard" data-link>See the leaderboard</a>`;
   } else if (m?.started) {
     body = `<p class="small muted" style="margin:0">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"} · your clock is running</p>
       <a class="btn" href="/g/${m.code}" data-link>Continue</a>`;
   } else {
-    body = `<p class="small muted" style="margin:0">Same puzzle for everyone · par ${p.par} · ${p.played} played today</p>
-      <button class="btn" data-action="daily-play">Play today's ${n}-letter ladder</button>`;
+    body = `<p class="small muted" style="margin:0">Same puzzle for everyone · ${d.length} letters · par ${d.par} · ${d.played} played today</p>
+      <button class="btn" data-action="daily-play">Play today's ladder</button>`;
   }
   return `
     <div class="daily-head">
       <span class="label">Daily ladder · ${fmtDay(d.date)}</span>
       <span class="small muted">${d.streak ? `🔥 ${d.streak}-day streak · ` : ""}${resets}</span>
     </div>
-    <div class="seg seg-small" role="group" aria-label="Daily ladder length">${lengths}</div>
     ${body}`;
 }
 
@@ -906,7 +895,6 @@ async function drawDailyResult(g) {
     played.push(w === g.end ? tiles(w, { cls: "small end" }) : tiles(w, { prev, seat: 1, target: g.end, cls: "small" }));
     prev = w;
   }
-  const others = (state.daily?.puzzles ?? []).filter((p) => p.length !== g.length && p.mine?.status !== "finished");
   app.innerHTML = `
     <main class="screen">
       ${dailyTop(g)}
@@ -930,11 +918,10 @@ async function drawDailyResult(g) {
           ${(g.solution ?? []).map((w, i, a) => tiles(w, { target: g.end, cls: i === a.length - 1 ? "small end" : "small" })).join("")}
         </div>
       </details>
-      ${others.length ? `<div class="row">${others.map((p) => `<button class="btn quiet" data-action="daily-play" data-value="${p.length}">Try today's ${p.length}-letter</button>`).join("")}</div>` : ""}
       <a class="btn ghost" href="/" data-link style="margin-top:auto">Home</a>
     </main>`;
   try {
-    const board = await api(`/api/leaderboard/today?length=${g.length}`);
+    const board = await api("/api/leaderboard/today");
     const ranked = board.rows.filter((r) => !r.gave_up).length;
     const el = document.getElementById("daily-rank");
     if (el && board.me?.rank) el.innerHTML = `<b>#${board.me.rank}</b> of ${ranked} today`;
@@ -945,12 +932,10 @@ async function drawDailyResult(g) {
 // ---------- leaderboard ----------
 
 async function renderLeaderboard() {
-  state.lb = state.lb ?? { tab: "today", length: dailyLength() };
-  const { tab, length } = state.lb;
+  state.lb = state.lb ?? { tab: "today" };
+  const { tab } = state.lb;
   const tabs = [["today", "Today"], ["week", "This week"], ["friends", "Friends"]].map(([v, label]) =>
     `<button type="button" data-action="lb-tab" data-value="${v}" aria-pressed="${v === tab}">${label}</button>`).join("");
-  const lengths = [4, 5, 6].map((n) =>
-    `<button type="button" data-action="lb-length" data-value="${n}" aria-pressed="${n === length}">${n} letters</button>`).join("");
   app.innerHTML = `
     <main class="screen">
       <div class="top">
@@ -959,7 +944,6 @@ async function renderLeaderboard() {
         <span style="width:24px"></span>
       </div>
       <div class="seg" role="tablist" aria-label="Leaderboard">${tabs}</div>
-      ${tab === "today" ? `<div class="seg seg-small" role="group" aria-label="Word length">${lengths}</div>` : ""}
       <div id="board"><p class="muted pulse" style="text-align:center">Loading…</p></div>
     </main>`;
   const el = document.getElementById("board");
@@ -973,7 +957,7 @@ async function renderLeaderboard() {
   };
   try {
     if (tab === "today") {
-      const b = await api(`/api/leaderboard/today?length=${length}`);
+      const b = await api("/api/leaderboard/today");
       const { top, extra, meRow } = pinned(b.rows, b.me, 5);
       const row = (r) => `
         <tr class="${r.me ? "me" : ""}">
@@ -982,13 +966,13 @@ async function renderLeaderboard() {
             : `<td class="num">${r.steps}</td><td class="num">${fmtTime(r.time_ms)}</td><td class="stars">${starText(r.stars)}</td>`}
         </tr>`;
       el.innerHTML = `
-        <p class="small muted board-head">${fmtDay(b.date)} · ${length} letters · par ${b.par} · ${b.played} played</p>
-        ${state.me && !b.me ? `<div class="banner"><span>You haven't played today's ${length}-letter ladder.</span><button class="btn" data-action="daily-play" data-value="${length}">Play</button></div>` : ""}
+        <p class="small muted board-head">Daily ladder · ${fmtDay(b.date)} · ${b.length} letters · par ${b.par} · ${b.played} played</p>
+        ${state.me && !b.me ? `<div class="banner"><span>You haven't played today's ladder yet.</span><button class="btn" data-action="daily-play">Play</button></div>` : ""}
         ${b.rows.length ? `
         <div class="board-wrap"><table class="board">
           <thead><tr><th>#</th><th>Player</th><th class="num">Steps</th><th class="num">Time</th><th></th></tr></thead>
           <tbody>${top.map(row).join("")}${extra}${meRow ? row(meRow) : ""}</tbody>
-        </table></div>` : `<p class="empty card">Nobody has finished today's ${length}-letter ladder yet. Be the first!</p>`}
+        </table></div>` : `<p class="empty card">Nobody has finished today's ladder yet. Be the first!</p>`}
         <p class="small muted">Ranked by fewest steps, then fastest time. One try per player per day.</p>`;
     } else if (tab === "week") {
       const b = await api("/api/leaderboard/week");
@@ -999,7 +983,7 @@ async function renderLeaderboard() {
           <td class="num">${r.days}/${b.days_so_far}</td><td class="num"><span class="stars">★</span> ${r.stars}</td>
         </tr>`;
       el.innerHTML = `
-        <p class="small muted board-head">${fmtDay(b.from)} – ${fmtDay(b.to)} · daily ladders, all lengths</p>
+        <p class="small muted board-head">${fmtDay(b.from)} – ${fmtDay(b.to)} · daily ladders</p>
         ${b.rows.length ? `
         <div class="board-wrap"><table class="board">
           <thead><tr><th>#</th><th>Player</th><th class="num">Days</th><th class="num">Stars</th></tr></thead>
@@ -1089,7 +1073,7 @@ function renderHelp() {
         <div class="modes-help">
           <div><b>Solo</b><span>Just you and the puzzle.</span></div>
           <div><b>Team</b><span>You and a friend take turns adding one word each to the same ladder, and win together. You get a notification when it's your turn.</span></div>
-          <div><b>Daily ladder</b><span>One puzzle a day for each word length, the same for everyone. You get one try, the words appear when you tap Start, and you're ranked on the leaderboard by fewest steps, then time. Play every day to keep your streak.</span></div>
+          <div><b>Daily ladder</b><span>One puzzle a day, the same for everyone. Its length (4, 5 or 6 letters) changes from day to day. You get one try, the words appear when you tap Start, and you're ranked on the leaderboard by fewest steps, then time. Play every day to keep your streak.</span></div>
           <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. No hints.</span></div>
         </div>
       </section>
@@ -1258,16 +1242,10 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
-  "daily-length"(el) {
-    try { localStorage.setItem("wl-daily-length", el.dataset.value); } catch { /* remembered for this visit only */ }
-    document.getElementById("daily-card").innerHTML = dailyCard();
-  },
   async "daily-play"(el) {
     el.disabled = true;
-    const n = Number(el.dataset.value) || dailyLength();
     try {
-      const g = await api(`/api/daily/${n}`, { method: "POST" });
-      try { localStorage.setItem("wl-daily-length", String(n)); } catch { /* fine */ }
+      const g = await api("/api/daily", { method: "POST" });
       go(`/g/${g.code}`);
     } catch (e) {
       toast(e.message);
@@ -1282,7 +1260,6 @@ const actions = {
     try { await navigator.clipboard.writeText(text); toast("Result copied. Paste it in any chat."); } catch { toast("Couldn't copy the result."); }
   },
   "lb-tab"(el) { state.lb.tab = el.dataset.value; renderLeaderboard(); },
-  "lb-length"(el) { state.lb.length = Number(el.dataset.value); renderLeaderboard(); },
   async "race-start"(el) {
     el.disabled = true;
     try {

@@ -1,7 +1,7 @@
 """Daily ladder and leaderboards.
 
-Every day (midnight India time) there is one puzzle per word length, the same for everyone. Each
-player gets one attempt per length: the clock starts on Start, there are no hints, and the result
+Every day (midnight India time) there is one puzzle, the same for everyone. The date decides its
+word length (4, 5 or 6 letters) as well as its words. Each player gets one attempt: the clock starts on Start, there are no hints, and the result
 is ranked by fewest steps, then fastest time.
 """
 
@@ -32,34 +32,36 @@ def seconds_until_reset() -> int:
     return int((tomorrow - now).total_seconds())
 
 
-def puzzle(day: date, length: int) -> engine.Puzzle:
+def length_for(day: date) -> int:
+    return random.Random(f"{SALT}:{day.isoformat()}:length").choice(engine.LENGTHS)
+
+
+def puzzle(day: date) -> engine.Puzzle:
     """The same puzzle for everyone on `day`, chosen from the date alone."""
+    length = length_for(day)
     return engine.graph(length).suggest(DIFFICULTY, random.Random(f"{SALT}:{day.isoformat()}:{length}"))
 
 
 # ---------- playing ----------
 
 
-def _my_daily(db: Session, player: Player, day: date, length: int) -> Game | None:
+def _my_daily(db: Session, player: Player, day: date) -> Game | None:
     return db.scalar(
         select(Game).join(GamePlayer).where(
-            Game.mode == "daily", Game.daily_date == day.isoformat(), Game.length == length,
-            GamePlayer.player_id == player.id,
+            Game.mode == "daily", Game.daily_date == day.isoformat(), GamePlayer.player_id == player.id,
         )
     )
 
 
-def open_daily(db: Session, player: Player, length: int) -> Game:
+def open_daily(db: Session, player: Player) -> Game:
     """This player's attempt at today's ladder, created on first open."""
-    if length not in engine.LENGTHS:
-        raise rules.RuleError("Word length must be 4, 5 or 6.")
     day = today()
-    game = _my_daily(db, player, day, length)
+    game = _my_daily(db, player, day)
     if game:
         return game
-    p = puzzle(day, length)
+    p = puzzle(day)
     game = Game(
-        code=rules._new_code(db), mode="daily", length=length, difficulty=DIFFICULTY,
+        code=rules._new_code(db), mode="daily", length=len(p.start), difficulty=DIFFICULTY,
         start_word=p.start, end_word=p.end, par=p.par, status="active", hints_left=0,
         daily_date=day.isoformat(),
     )
@@ -72,15 +74,13 @@ def open_daily(db: Session, player: Player, length: int) -> Game:
 # ---------- leaderboards ----------
 
 
-def _results(db: Session, day_from: date, day_to: date, length: int | None = None):
+def _results(db: Session, day_from: date, day_to: date):
     """(game, seat) for every daily attempt that has finished or been given up in the date range."""
     q = (
         select(Game, GamePlayer)
         .join(GamePlayer, GamePlayer.game_id == Game.id)
         .where(Game.mode == "daily", Game.daily_date >= day_from.isoformat(), Game.daily_date <= day_to.isoformat())
     )
-    if length:
-        q = q.where(Game.length == length)
     return [(g, s) for g, s in db.execute(q).all() if s.finished_at or s.gave_up]
 
 
@@ -88,10 +88,10 @@ def _time_ms(seat: GamePlayer) -> int:
     return rules._elapsed_ms(seat) or 0
 
 
-def day_board(db: Session, player: Player | None, length: int, day: date | None = None) -> dict:
+def day_board(db: Session, player: Player | None, day: date | None = None) -> dict:
     day = day or today()
     finished, gave_up = [], []
-    for game, seat in _results(db, day, day, length):
+    for game, seat in _results(db, day, day):
         row = {"name": seat.player.name, "me": player is not None and seat.player_id == player.id,
                "steps": seat.steps_used or 0, "time_ms": _time_ms(seat)}
         if seat.gave_up:
@@ -104,13 +104,13 @@ def day_board(db: Session, player: Player | None, length: int, day: date | None 
         same = i and (row["steps"], row["time_ms"]) == (finished[i - 1]["steps"], finished[i - 1]["time_ms"])
         row["rank"] = finished[i - 1]["rank"] if same else i + 1
     rows = finished + gave_up
-    p = puzzle(day, length)
-    return {"date": day.isoformat(), "length": length, "par": p.par, "played": len(rows),
+    p = puzzle(day)
+    return {"date": day.isoformat(), "length": len(p.start), "par": p.par, "played": len(rows),
             "rows": rows, "me": next((r for r in rows if r["me"]), None)}
 
 
 def week_board(db: Session, player: Player | None) -> dict:
-    """Stars from daily ladders (all lengths) since Monday; ties go to the lower total time."""
+    """Stars from daily ladders since Monday; ties go to the lower total time."""
     end = today()
     start = end - timedelta(days=end.weekday())
     totals: dict[int, dict] = {}
@@ -177,26 +177,23 @@ def streak(db: Session, player: Player) -> int:
 def overview(db: Session, player: Player) -> dict:
     """What the home screen's daily card needs."""
     day = today()
-    counts = dict(db.execute(
-        select(Game.length, func.count(GamePlayer.id)).join(GamePlayer)
+    p = puzzle(day)
+    played = db.scalar(
+        select(func.count(GamePlayer.id)).join(Game)
         .where(Game.mode == "daily", Game.daily_date == day.isoformat(), GamePlayer.started_at.is_not(None))
-        .group_by(Game.length)
-    ).all())
-    puzzles = []
-    for n in engine.LENGTHS:
-        game = _my_daily(db, player, day, n)
-        mine = None
-        if game:
-            seat = game.seats[0]
-            mine = {"code": game.code, "status": game.status, "started": seat.started_at is not None,
-                    "steps": seat.steps_used or 0, "time_ms": rules._elapsed_ms(seat), "gave_up": bool(seat.gave_up),
-                    "stars": rules.stars_for(seat.steps_used or 0, game.par) if seat.finished_at else None}
-            if game.status == "finished" and not seat.gave_up:
-                board = day_board(db, player, n, day)
-                mine["rank"], mine["of"] = board["me"]["rank"], len([r for r in board["rows"] if not r["gave_up"]])
-        puzzles.append({"length": n, "par": puzzle(day, n).par, "played": counts.get(n, 0), "mine": mine})
+    )
+    game = _my_daily(db, player, day)
+    mine = None
+    if game:
+        seat = game.seats[0]
+        mine = {"code": game.code, "status": game.status, "started": seat.started_at is not None,
+                "steps": seat.steps_used or 0, "time_ms": rules._elapsed_ms(seat), "gave_up": bool(seat.gave_up),
+                "stars": rules.stars_for(seat.steps_used or 0, game.par) if seat.finished_at else None}
+        if game.status == "finished" and not seat.gave_up:
+            board = day_board(db, player, day)
+            mine["rank"], mine["of"] = board["me"]["rank"], len([r for r in board["rows"] if not r["gave_up"]])
     return {"date": day.isoformat(), "resets_in": seconds_until_reset(), "streak": streak(db, player),
-            "puzzles": puzzles}
+            "length": len(p.start), "par": p.par, "played": played or 0, "mine": mine}
 
 
-__all__ = ["day_board", "friends_board", "open_daily", "overview", "puzzle", "streak", "today", "week_board"]
+__all__ = ["day_board", "friends_board", "length_for", "open_daily", "overview", "puzzle", "streak", "today", "week_board"]

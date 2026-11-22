@@ -288,16 +288,14 @@ def daily_overview(player: Me, db: DB):
     return daily.overview(db, player)
 
 
-@app.post("/api/daily/{length}")
-def daily_open(length: int, player: Me, db: DB):
-    return _view(daily.open_daily(db, player, length), player)
+@app.post("/api/daily")
+def daily_open(player: Me, db: DB):
+    return _view(daily.open_daily(db, player), player)
 
 
 @app.get("/api/leaderboard/today")
-def leaderboard_today(request: Request, db: DB, length: int = 5):
-    if length not in engine.LENGTHS:
-        raise HTTPException(400, "Word length must be 4, 5 or 6.")
-    return daily.day_board(db, _player_from_token(db, request.cookies.get(COOKIE)), length)
+def leaderboard_today(request: Request, db: DB):
+    return daily.day_board(db, _player_from_token(db, request.cookies.get(COOKIE)))
 
 
 @app.get("/api/leaderboard/week")
