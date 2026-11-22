@@ -322,7 +322,7 @@ async function renderHome() {
           <span class="lab"></span><b>Compete</b><span>Same puzzle, fewest steps</span><span class="go">Challenge →</span>
         </a>
       </section>
-      <a class="howrow" href="${tutorialSeen() ? "/help" : "/tutorial"}" data-link><span>New here? <b>How to play</b></span><span aria-hidden="true">→</span></a>
+      <a class="howrow" href="/help" data-link><span>New here? <b>How to play</b></span><span aria-hidden="true">→</span></a>
       <form class="row" data-form="join-code">
         <input class="input code-input" id="join-code" name="code" aria-label="Game code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" style="flex:2">
         <button class="btn ghost" type="submit">Join</button>
@@ -602,7 +602,7 @@ function drawJoin(g) {
         ${tiles(g.end, { cls: "small end" })}
       </div>
       <button class="btn${MODES[g.mode].cls}" data-action="join">${race ? "Accept the challenge" : `Join ${esc(host)}'s game`}</button>
-      <a class="linkish" href="/tutorial?then=${encodeURIComponent(`/g/${g.code}`)}" data-link style="align-self:center">New to word ladders? 20-second tutorial</a>
+      <a class="linkish" href="/help?then=${encodeURIComponent(`/g/${g.code}`)}" data-link style="align-self:center">New to word ladders? How to play</a>
     </main>`;
 }
 
@@ -1206,6 +1206,9 @@ function pushCheckText() {
 }
 
 function renderHelp() {
+  // Opened from an invite? Back goes to the invite, and so does the tutorial when it's done.
+  const then = new URLSearchParams(location.search).get("then");
+  const back = then && then.startsWith("/") && !then.startsWith("//") ? then : "/";
   const ex = ["cold", "cord", "card", "ward", "warm"];
   let prev = null;
   const example = ex.map((w, i) => {
@@ -1217,11 +1220,11 @@ function renderHelp() {
   app.innerHTML = `
     <main class="screen help">
       <div class="top">
-        <a class="icon-btn" href="${state.me ? "/" : "/"}" data-link aria-label="Back">←</a>
+        <a class="icon-btn" href="${esc(back)}" data-link aria-label="Back">←</a>
         <h2>How to play</h2>
         <span style="width:24px"></span>
       </div>
-      <a class="btn daily" href="/tutorial" data-link>Play the 20-second tutorial</a>
+      <a class="btn daily" href="/tutorial${back === "/" ? "" : `?then=${encodeURIComponent(back)}`}" data-link>Play the 20-second tutorial</a>
       <section class="help-example card">
         <div class="mini-ladder">${example}</div>
         <p class="small muted" style="margin:0">COLD becomes WARM in 4 steps, changing one letter each time.</p>
@@ -1268,7 +1271,7 @@ function renderHelp() {
         ${canTest && state.me ? `<button class="btn quiet" data-action="push-test">Send me a test notification</button>` : ""}
         <p class="small muted" style="margin:0" id="push-result"></p>
       </section>
-      <a class="btn ghost" href="/" data-link>Back to the game</a>
+      <a class="btn ghost" href="${esc(back)}" data-link>Back to the game</a>
     </main>`;
 }
 
@@ -1613,8 +1616,6 @@ app.addEventListener("submit", async (ev) => {
     try {
       state.me = await api("/api/username", { method: "POST", body: { username: new FormData(ev.target).get("username").trim() } });
       syncPush().catch(() => {});
-      // A brand-new player (not from an invite) learns the game by playing a tiny one.
-      if (location.pathname === "/" && !tutorialSeen()) return go("/tutorial", { replace: true });
       route();
     } catch (e) {
       errEl.textContent = e.message;
