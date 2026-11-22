@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import update
 
-from wordladder import engine
+from wordladder import engine, rules
 from wordladder.db import GamePlayer, SessionLocal, utcnow
 
 from .test_push import sent, subscribe  # noqa: F401  (fixture)
@@ -42,7 +42,10 @@ def test_race_needs_start_and_keeps_ladders_separate(client_factory):
     # The opponent's words stay hidden until the race is over.
     them = next(s for s in ga["race"]["seats"] if s["seat"] == 2)
     assert them["steps"] == 2 and them["ladder"] is None
-    assert a.post(f"/api/games/{code}/hint").status_code == 400
+    # Hints work in a race, but each adds a step, for that player only.
+    hint = a.post(f"/api/games/{code}/hint").json()
+    assert hint["word"] == PATH[2] and hint["game"]["steps_used"] == 2
+    assert b.get(f"/api/games/{code}").json()["hints_left"] == rules.HINTS[4]
 
 
 def test_fewest_steps_wins_even_if_slower(client_factory):

@@ -70,7 +70,10 @@ def test_team_game_alternates_turns_and_streams_live(client_factory):
     assert g["current"] == path[1] and g["steps_used"] == 2 and g["my_turn"]
 
     hint = a.post(f"/api/games/{code}/hint").json()
-    assert hint["position"] == engine.changed_position(path[1], path[2]) and hint["game"]["hints_left"] == 1
+    pos = engine.changed_position(path[1], path[2])
+    assert (hint["position"], hint["letter"], hint["word"]) == (pos, path[2][pos], path[2])
+    assert hint["game"]["hints_left"] == rules.HINTS[4] - 1 and hint["penalty"] == 0
+    assert hint["game"]["steps_used"] == 2  # free in team games
 
     seat_turn = {1: a, 2: b}
     for w in path[2:]:

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import update
 
-from wordladder import daily, engine
+from wordladder import daily, engine, rules
 from wordladder.db import GamePlayer, SessionLocal, utcnow
 
 DAY = date(2026, 11, 23)  # a Monday
@@ -44,7 +44,7 @@ def test_same_puzzle_for_everyone_and_changes_daily():
     assert daily.puzzle(DAY + timedelta(days=1)) != p1
     n = daily.length_for(DAY)
     assert len(p1.start) == len(p1.end) == n
-    lo, hi = engine.PAR_RANGES[n]["medium"]
+    lo, hi = engine.PAR_RANGES[n][daily.DIFFICULTY]
     assert lo <= p1.par <= hi
     # The length varies from day to day.
     assert {daily.length_for(DAY + timedelta(days=i)) for i in range(30)} == set(engine.LENGTHS)
@@ -61,7 +61,9 @@ def test_one_attempt_and_words_hidden_until_start(client_factory):
     started = a.post(f"/api/games/{g['code']}/start").json()
     p = daily.puzzle(DAY)
     assert (started["start"], started["end"], started["par"]) == (p.start, p.end, p.par)
-    assert a.post(f"/api/games/{g['code']}/hint").status_code == 400
+    hint = a.post(f"/api/games/{g['code']}/hint").json()  # allowed, but costs a step
+    assert hint["penalty"] == 1 and hint["game"]["steps_used"] == 1
+    assert hint["game"]["hints_left"] == rules.HINTS[len(p.start)] - 1
     assert a.post(f"/api/games/{g['code']}/again", json={}).status_code == 400
     # Dailies aren't listed with regular games.
     assert all(x["code"] != g["code"] for x in a.get("/api/games").json()["active"])

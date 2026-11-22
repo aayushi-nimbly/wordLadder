@@ -1,7 +1,7 @@
 """Daily ladder and leaderboards.
 
 Every day (midnight India time) there is one puzzle, the same for everyone. The date decides its
-word length (4, 5 or 6 letters) as well as its words. Each player gets one attempt: the clock starts on Start, there are no hints, and the result
+word length (4, 5 or 6 letters) as well as its words. Each player gets one attempt: the clock starts on Start, each hint adds a step, and the result
 is ranked by fewest steps, then fastest time.
 """
 
@@ -19,8 +19,8 @@ from . import engine, rules
 from .db import Game, GamePlayer, Player
 
 TZ = ZoneInfo("Asia/Kolkata")
-DIFFICULTY = "medium"
-SALT = "wordladder-daily-v1"  # change to reshuffle every future puzzle
+DIFFICULTY = "easy"
+SALT = "wordladder-daily-v2"  # change to reshuffle every future puzzle
 
 
 def today() -> date:
@@ -67,7 +67,7 @@ def open_daily(db: Session, player: Player) -> Game:
     p = puzzle(day)
     game = Game(
         code=rules._new_code(db), mode="daily", length=len(p.start), difficulty=DIFFICULTY,
-        start_word=p.start, end_word=p.end, par=p.par, status="active", hints_left=0,
+        start_word=p.start, end_word=p.end, par=p.par, status="active", hints_left=0,  # daily hints are per player (see rules.hints_left)
         daily_date=day.isoformat(),
     )
     game.seats.append(GamePlayer(player=player, seat=1, steps_used=0, gave_up=False))

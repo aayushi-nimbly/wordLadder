@@ -70,6 +70,38 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 }
 .coach .tip-hit { color: var(--hit); }
 .feedback.tip { color: var(--muted); font-weight: 400; }
+/* home: 2x2 grid of ways to play */
+.modes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mode-card {
+  --accent: var(--ink);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
+  min-height: 150px; padding: 16px; border-radius: 16px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); text-decoration: none; font: inherit; cursor: pointer;
+  transition: transform .08s ease, border-color .15s;
+}
+.mode-card:hover { border-color: var(--accent); }
+.mode-card:active { transform: scale(.98); }
+.mode-card.daily { --accent: var(--p1); }
+.mode-card.team { --accent: var(--p2); }
+.mode-card.race { --accent: var(--race); }
+.mode-card.daily.done { background: var(--p1-soft); border-color: transparent; }
+.mode-mark { display: flex; gap: 3px; margin-bottom: 6px; }
+.mode-mark i { width: 10px; height: 10px; border-radius: 3px; background: var(--line); }
+.mode-mark i.on { background: var(--accent); }
+.mode-title { font: 700 1.2rem var(--display); display: flex; align-items: baseline; gap: 8px; }
+.mode-rank { font: 800 1.2rem var(--display); color: var(--p1); }
+.mode-sub { font-size: .875rem; color: var(--muted); line-height: 1.35; }
+.mode-foot { margin-top: auto; font-weight: 700; font-size: .875rem; color: var(--accent); }
+.list-link {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+  text-decoration: none;
+}
+.tools .hint-on { background: var(--gold); border-color: var(--gold); color: #1d1600; }
+.rank-n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: .85rem; }
+.rank-n.top1 { background: #f2c14e; color: #3a2a00; }
+.rank-n.top2 { background: #d5dbe2; color: #29313a; }
+.rank-n.top3 { background: #e5b08a; color: #3a1f0c; }
 .help-btn {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
   border: 1.5px solid var(--line); text-decoration: none; font-weight: 700; color: var(--muted);
@@ -81,13 +113,12 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .btn {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 52px; padding: 12px 18px; border-radius: 12px; border: 0;
-  font: 700 1.05rem var(--display); background: var(--p1); color: var(--on-accent); text-decoration: none;
+  font: 700 1rem var(--display); background: var(--ink); color: var(--bg); text-decoration: none;
   transition: transform .08s ease, opacity .15s;
 }
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .45; cursor: default; }
-.btn.blue { background: var(--p2); }
-.btn.race { background: var(--race); }
+.btn.blue, .btn.race { background: var(--ink); }
 .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
 .btn.quiet { background: var(--surface); color: var(--ink); border: 1px solid var(--line); min-height: 44px; font-size: .95rem; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
@@ -232,12 +263,7 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .race-ladders .tiles.small .t { --tile-size: 24px; font-size: .8rem; }
 
 /* daily ladder */
-.daily { display: flex; flex-direction: column; gap: 12px; border-color: var(--p1); box-shadow: inset 4px 0 0 var(--p1); }
-.daily-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .seg-small button { min-height: 36px; font-size: .9rem; }
-.daily-result { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-decoration: none; }
-.daily-head a { text-decoration: none; font-weight: 700; color: var(--p1); }
-.daily-rank { font: 800 1.6rem var(--display); }
 .daily-rank-big { margin: 4px 0 0; font-size: 1.1rem; min-height: 1.5em; }
 
 /* leaderboard */

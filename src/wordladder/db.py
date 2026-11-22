@@ -79,6 +79,7 @@ class GamePlayer(Base):
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     gave_up: Mapped[bool | None] = mapped_column(default=False)
+    hints_used: Mapped[int | None] = mapped_column(default=0)  # race and daily: hints are per player
 
     game: Mapped[Game] = relationship(back_populates="seats")
     player: Mapped[Player] = relationship()

@@ -229,7 +229,7 @@ async function renderHome() {
     const kind = { solo: "", team: "Team · ", race: "Race · " }[g.mode];
     let right;
     if (g.mode === "race" && g.status === "finished") {
-      right = { won: `<span class="pill turn">🏆 Won</span>`, lost: `<span class="pill wait">Lost</span>`,
+      right = { won: `<span class="pill turn">Won</span>`, lost: `<span class="pill wait">Lost</span>`,
         tie: `<span class="pill wait">Tie</span>` }[g.outcome] ?? `<span class="pill wait">No winner</span>`;
     } else if (g.mode === "race" && g.status === "active") {
       right = g.my_turn ? `<span class="pill turn">Your go</span>` : `<span class="pill wait">Waiting for ${esc(g.partner)}</span>`;
@@ -261,12 +261,27 @@ async function renderHome() {
         <a class="banner" href="/tutorial" data-link style="text-decoration:none">
           <span><b>New to word ladders?</b><br><span class="small">Learn by playing a tiny one. 20 seconds.</span></span><b aria-hidden="true">→</b>
         </a>`}
-      <section class="daily card" id="daily-card">${dailyCard()}</section>
-      <div class="stack">
-        <a class="btn" href="/new?mode=solo" data-link>Play solo</a>
-        <a class="btn blue" href="/new?mode=team" data-link>Team up with a friend</a>
-        <a class="btn race" href="/new?mode=race" data-link>Race a friend</a>
-      </div>
+      <section class="modes-grid" aria-label="Ways to play">
+        ${dailyCard()}
+        <a class="mode-card solo" href="/new?mode=solo" data-link>
+          ${modeMark(1)}<b class="mode-title">Solo</b>
+          <span class="mode-sub">Your own pace, no clock</span>
+          <span class="mode-foot">Start →</span>
+        </a>
+        <a class="mode-card team" href="/new?mode=team" data-link>
+          ${modeMark(1)}<b class="mode-title">Team</b>
+          <span class="mode-sub">Take turns with a friend, win together</span>
+          <span class="mode-foot">Invite →</span>
+        </a>
+        <a class="mode-card race" href="/new?mode=race" data-link>
+          ${modeMark(1)}<b class="mode-title">Race</b>
+          <span class="mode-sub">Same puzzle, fewest steps wins</span>
+          <span class="mode-foot">Challenge →</span>
+        </a>
+      </section>
+      <a class="list-link" href="/leaderboard" data-link>
+        <span><b>Leaderboard</b><span class="small muted"> · today, this week, friends</span></span><span aria-hidden="true">→</span>
+      </a>
       <form class="row" data-form="join-code">
         <input class="input code-input" id="join-code" name="code" aria-label="Game code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" style="flex:2">
         <button class="btn ghost" type="submit">Join</button>
@@ -291,7 +306,7 @@ const EXAMPLES = { 4: ["cold", "warm"], 5: ["stone", "money"], 6: ["winter", "su
 
 function renderSetup(mode) {
   state.setup = {
-    mode, length: 5, difficulty: "medium", source: "suggest",
+    mode, length: 5, difficulty: "easy", source: "suggest",
     start: "", end: "", par: null, error: null, checking: false,
   };
   drawSetup();
@@ -315,7 +330,7 @@ function drawSetup() {
         </div>
         <div class="row" style="align-items:center">
           <span id="puzzle-status" class="badge"></span>
-          <button type="button" class="btn quiet" data-action="suggest" style="flex:0 0 auto">↻ Other words</button>
+          <button type="button" class="btn quiet" data-action="suggest" style="flex:0 0 auto">Other words</button>
         </div>
       </div>`
     : `
@@ -340,7 +355,7 @@ function drawSetup() {
         <span style="width:24px"></span>
       </div>
       <div class="field"><span class="label">Letters</span>${seg("length", [4, 5, 6], s.length)}</div>
-      <div class="field"><span class="label">Words</span>${seg("source", ["suggest", "own"], s.source, ["✨ Suggest for me", "✏️ Choose my own"])}</div>
+      <div class="field"><span class="label">Words</span>${seg("source", ["suggest", "own"], s.source, ["Suggest words", "My own words"])}</div>
       <form class="stack" data-form="setup">
         ${words}
         <button class="btn${MODES[s.mode].cls}" id="setup-go" type="submit" style="margin-top:8px">
@@ -468,7 +483,7 @@ function openSocket(code) {
 }
 
 async function openGame(code) {
-  state.entry = ""; state.hintPos = null; state.feedback = null; state.again = null;
+  state.entry = ""; state.hintPos = null; state.hint = null; state.feedback = null; state.again = null;
   app.innerHTML = `<main class="screen center"><p class="muted pulse" style="text-align:center">Loading…</p></main>`;
   try {
     state.game = await api(`/api/games/${code}`);
@@ -497,6 +512,7 @@ function applyState(g) {
       if (last.seat !== g.my_seat) {
         state.feedback = { text: `${partner?.name ?? "Your friend"} played ${last.word.toUpperCase()}`, kind: "meh" };
         state.hintPos = null;
+        state.hint = null;
       }
     } else if (g.ladder.length < old.ladder.length && !g.my_turn) {
       state.feedback = { text: `${partner?.name ?? "Your friend"} stepped back one rung`, kind: "meh" };
@@ -594,8 +610,8 @@ function drawPlay(g) {
   const bottom = g.my_turn
     ? `
       <div class="tools">
-        <button data-action="hint" ${g.hints_left ? "" : "disabled"}>💡 Hint (${g.hints_left})</button>
-        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
+        ${hintButton(g)}
+        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>Undo</button>
         <button data-action="give-up" class="danger">Give up</button>
       </div>
       ${keyboard()}`
@@ -613,7 +629,8 @@ function drawPlay(g) {
     <main class="game">
       <div class="top">
         <a class="icon-btn" href="/" data-link aria-label="Back to my games">←</a>
-        <div class="team" style="flex:1">${who}</div>
+        ${team ? `<div class="team" style="flex:1">${who}</div>`
+          : `<h2 style="font-size:1.2rem">Solo</h2><span class="label">${g.length} letters</span>`}
       </div>
       <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>${toGo}</span></div>
       <div class="ladder" id="ladder">${rungs.join("")}</div>
@@ -622,6 +639,14 @@ function drawPlay(g) {
     </main>`;
   drawEntry();
   scrollToEntry();
+}
+
+function hintButton(g) {
+  if (state.hint && state.hint.from === g.current && !state.hint.shown) {
+    return `<button data-action="hint" class="hint-on">Show word</button>`;
+  }
+  const cost = g.hints_cost ? ` <span class="muted">+1 step</span>` : "";
+  return `<button data-action="hint" ${g.hints_left ? "" : "disabled"}>Hint · ${g.hints_left}${cost}</button>`;
 }
 
 // The message line under the ladder. Before the first word it explains what to do.
@@ -709,8 +734,8 @@ function drawRace(g) {
           ${tiles(g.start, { target: g.end })}
           <span class="muted">to</span>
           ${tiles(g.end, { cls: "end" })}
-          <p class="muted small" style="margin:0">Fewest steps wins. If you tie, the faster time wins.
-            Your clock starts when you tap Start, so start when you're ready.</p>
+          <p class="muted small" style="margin:0">Fewest steps wins; a tie goes to the faster time.
+            Your clock starts when you tap Start. Hints are allowed, but each adds a step.</p>
           <button class="btn race" data-action="race-start" style="width:100%">Start</button>
         </div>
       </main>`;
@@ -741,7 +766,8 @@ function drawRace(g) {
       <div class="ladder" id="ladder">${rungs.join("")}</div>
       ${feedbackLine(g)}
       <div class="tools">
-        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
+        ${hintButton(g)}
+        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>Undo</button>
         <button data-action="give-up" class="danger">Give up</button>
       </div>
       ${keyboard()}
@@ -754,7 +780,7 @@ function drawRace(g) {
 function drawRaceResult(g) {
   const partner = g.players.find((p) => !p.me);
   const outcome = g.race.outcome;
-  const title = { won: "You win! 🏆", lost: `${esc(partner?.name)} wins`, tie: "It's a tie" }[outcome] ?? "No winner";
+  const title = { won: "You win", lost: `${esc(partner?.name)} wins`, tie: "It's a tie" }[outcome] ?? "No winner";
   const ordered = [...g.race.seats].sort((a, b) => (a.seat === g.my_seat ? -1 : b.seat === g.my_seat ? 1 : 0));
   const nameOf = (x) => (x.seat === g.my_seat ? "You" : esc(partner?.name));
   const ladderOf = (x) => {
@@ -778,7 +804,7 @@ function drawRaceResult(g) {
       <div class="contrib">
         ${ordered.map((x) => `
           <div class="s${x.seat}${x.seat === g.race.winner_seat ? " winner" : ""}">
-            <span class="label">${nameOf(x)}${x.seat === g.race.winner_seat ? " · 🏆" : ""}</span>
+            <span class="label">${nameOf(x)}${x.seat === g.race.winner_seat ? " · winner" : ""}</span>
             <b>${x.gave_up ? "Gave up" : `${x.steps} steps`}</b>
             <span class="small">${x.gave_up ? `after ${x.steps} steps` : `${fmtTime(x.time_ms)} · ${starText(x.stars)}`}</span>
           </div>`).join("")}
@@ -804,35 +830,48 @@ function drawRaceResult(g) {
 
 const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
+function modeMark(lit) {
+  return `<span class="mode-mark" aria-hidden="true">${[0, 1, 2].map((i) => `<i${i === lit ? " class=\"on\"" : ""}></i>`).join("")}</span>`;
+}
+
+// The Daily card in the home grid; what it says depends on whether you've played today.
 function dailyCard() {
   const d = state.daily;
-  if (!d) return `<span class="muted small">Daily ladder unavailable right now.</span>`;
+  const nextIn = (sec) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h` : `${Math.max(1, Math.round(sec / 60))}m`);
+  if (!d) return `<div class="mode-card daily"><b class="mode-title">Daily</b><span class="mode-sub">Unavailable right now</span></div>`;
   const m = d.mine;
-  const done = m?.status === "finished";
-  const hours = Math.floor(d.resets_in / 3600);
-  const next = hours ? `Next in ${hours}h` : `Next in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
-  const streak = d.streak ? ` · 🔥 ${d.streak}` : "";
-  let body;
-  if (done && !m.gave_up) {
-    body = `
-      <a class="daily-result" href="/g/${m.code}" data-link>
-        <span><b>${m.steps} steps · ${fmtTime(m.time_ms)}</b> <span class="stars">${starText(m.stars)}</span>
-          <span class="small muted" style="display:block">${next}</span></span>
-        <span class="daily-rank">#${m.rank}</span>
+  const streak = d.streak > 1 ? ` · ${d.streak}-day streak` : "";
+  if (m?.status === "finished" && !m.gave_up) {
+    return `
+      <a class="mode-card daily done" href="/g/${m.code}" data-link>
+        ${modeMark(2)}
+        <b class="mode-title">Daily <span class="mode-rank">#${m.rank}</span></b>
+        <span class="mode-sub">${m.steps} steps · ${fmtTime(m.time_ms)} <span class="stars">${starText(m.stars)}</span></span>
+        <span class="mode-foot">Next in ${nextIn(d.resets_in)}${streak}</span>
       </a>`;
-  } else if (m?.gave_up) {
-    body = `<p class="small muted" style="margin:0">You gave up today. ${next}.</p>`;
-  } else if (m?.started) {
-    body = `<a class="btn" href="/g/${m.code}" data-link>Continue · ${m.steps} step${m.steps === 1 ? "" : "s"} so far</a>`;
-  } else {
-    body = `<button class="btn" data-action="daily-play">Play · ${d.length} letters</button>`;
+  }
+  if (m?.gave_up) {
+    return `
+      <a class="mode-card daily" href="/leaderboard" data-link>
+        ${modeMark(2)}<b class="mode-title">Daily</b>
+        <span class="mode-sub">You gave up today</span>
+        <span class="mode-foot">Next in ${nextIn(d.resets_in)}</span>
+      </a>`;
+  }
+  if (m?.started) {
+    return `
+      <a class="mode-card daily" href="/g/${m.code}" data-link>
+        ${modeMark(1)}<b class="mode-title">Daily</b>
+        <span class="mode-sub">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"}</span>
+        <span class="mode-foot">Continue →</span>
+      </a>`;
   }
   return `
-    <div class="daily-head">
-      <span class="label">Daily ladder${streak}</span>
-      <a class="small" href="/leaderboard" data-link>🏆 Leaderboard</a>
-    </div>
-    ${body}`;
+    <button class="mode-card daily" data-action="daily-play">
+      ${modeMark(0)}<b class="mode-title">Daily</b>
+      <span class="mode-sub">Today's puzzle for everyone · ${d.length} letters</span>
+      <span class="mode-foot">Play →${streak}</span>
+    </button>`;
 }
 
 function dailyTop(g) {
@@ -858,7 +897,7 @@ function drawDaily(g) {
           ${hidden.replace(/class="t"/g, 'class="t end"')}
           <p class="muted small" style="margin:0">Everyone gets the same puzzle today, and you get <b>one try</b>.
             The words appear when you tap Start, and your clock starts then too.
-            Fewest steps wins; ties go to the faster time. No hints.</p>
+            Fewest steps wins; ties go to the faster time. Each hint adds a step.</p>
           <button class="btn" data-action="race-start" style="width:100%">Start</button>
         </div>
       </main>`;
@@ -872,7 +911,8 @@ function drawDaily(g) {
       <div class="ladder" id="ladder">${rungs.join("")}</div>
       ${feedbackLine(g)}
       <div class="tools">
-        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
+        ${hintButton(g)}
+        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>Undo</button>
         <button data-action="give-up" class="danger">Give up</button>
       </div>
       ${keyboard()}
@@ -951,7 +991,7 @@ async function renderLeaderboard() {
       <div id="board"><p class="muted pulse" style="text-align:center">Loading…</p></div>
     </main>`;
   const el = document.getElementById("board");
-  const medal = (r) => (r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : r ?? "—");
+  const medal = (r) => (r ? `<span class="rank-n${r <= 3 ? ` top${r}` : ""}">${r}</span>` : "—");
   const you = (r) => (r.me ? "<b>You</b>" : esc(r.name));
   // Top 50, plus your own row underneath if you're further down.
   const pinned = (rows, me, cols) => {
@@ -1178,7 +1218,8 @@ function renderHelp() {
         <ul class="rules">
           <li><b>Par</b> is the fewest steps the puzzle can be solved in.</li>
           <li>Finish in par for ★★★, 1–2 extra steps for ★★, more for ★.</li>
-          <li><b>Hint</b> shows which letter to change next (2 per game). <b>Undo</b> takes back the last word, but that step still counts.</li>
+          <li><b>Hint</b> shows which letter to change and what to change it to; tap again to fill in the word. You get 3 hints for 4-letter words, 4 for 5 and 5 for 6. In races and the daily, each hint adds a step.</li>
+          <li><b>Undo</b> takes back the last word, but that step still counts.</li>
           <li>Stuck with "no way through"? That word is a dead end. Undo and try another.</li>
         </ul>
       </section>
@@ -1188,7 +1229,7 @@ function renderHelp() {
           <div><b>Solo</b><span>Just you and the puzzle.</span></div>
           <div><b>Team</b><span>You and a friend take turns adding one word each to the same ladder, and win together. You get a notification when it's your turn.</span></div>
           <div><b>Daily ladder</b><span>One puzzle a day, the same for everyone. Its length (4, 5 or 6 letters) changes from day to day. You get one try, the words appear when you tap Start, and you're ranked on the leaderboard by fewest steps, then time. Play every day to keep your streak.</span></div>
-          <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. No hints.</span></div>
+          <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. Hints cost a step.</span></div>
         </div>
       </section>
       <section class="stack">
@@ -1261,7 +1302,7 @@ async function submitWord() {
   const before = g.distance;
   try {
     const next = await api(`/api/games/${g.code}/moves`, { method: "POST", body: { word: state.entry } });
-    state.entry = ""; state.hintPos = null;
+    state.entry = ""; state.hintPos = null; state.hint = null;
     if (next.status === "won" || next.distance === 0) state.feedback = null;
     else if (next.distance < 0 || next.distance === null) state.feedback = { text: "Dead end: no way to the end from here. Try Undo.", kind: "bad" };
     else if (next.distance < before) state.feedback = { text: "One step closer!", kind: "ok" };
@@ -1426,11 +1467,25 @@ const actions = {
     } catch { /* closed the share sheet */ }
   },
   async hint() {
+    const g = state.game;
+    // Second tap on the same step: fill in the word, ready for Enter. Costs nothing extra.
+    if (state.hint && state.hint.from === g.current) {
+      state.entry = state.hint.word;
+      state.feedback = { text: `Press Enter to play ${state.hint.word.toUpperCase()}`, kind: "ok" };
+      state.hint.shown = true;
+      return drawGame();
+    }
     try {
-      const r = await api(`/api/games/${state.game.code}/hint`, { method: "POST" });
+      const r = await api(`/api/games/${g.code}/hint`, { method: "POST" });
       state.game = r.game;
+      state.hint = { from: g.current, word: r.word, shown: false };
       state.hintPos = r.position;
-      state.feedback = { text: `Hint: change letter ${r.position + 1}`, kind: "ok" };
+      state.entry = "";
+      const nth = ["1st", "2nd", "3rd", "4th", "5th", "6th"][r.position];
+      state.feedback = {
+        text: `Change the ${nth} letter, ${g.current[r.position].toUpperCase()}, to ${r.letter.toUpperCase()}${r.penalty ? " (+1 step)" : ""}`,
+        kind: "ok",
+      };
       drawGame();
     } catch (e) {
       setFeedback(e.message, "bad");
@@ -1439,7 +1494,7 @@ const actions = {
   async undo() {
     try {
       state.game = await api(`/api/games/${state.game.code}/undo`, { method: "POST" });
-      state.entry = ""; state.hintPos = null;
+      state.entry = ""; state.hintPos = null; state.hint = null;
       state.feedback = { text: "Stepped back one rung (counts as a step)", kind: "meh" };
       drawGame();
     } catch (e) {

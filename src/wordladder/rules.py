@@ -25,7 +25,9 @@ from .db import Game, GamePlayer, Move, Player, utcnow
 MODES = ("solo", "team", "race")  # what players can create; daily games come from daily.py
 CLOCKED = ("race", "daily")  # each player has their own ladder and a clock that starts on Start
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
-HINTS_PER_GAME = 2
+# Longer words are harder, so they get more hints.
+HINTS = {4: 3, 5: 4, 6: 5}
+HINT_PENALTY = 1  # in races and the daily, each hint adds a step so rankings stay fair
 
 
 class RuleError(Exception):
@@ -99,7 +101,7 @@ def create_game(
         end_word=end,
         par=par,
         status="active" if ready else "waiting",
-        hints_left=0 if mode == "race" else HINTS_PER_GAME,
+        hints_left=HINTS[length],
     )
     game.seats.append(GamePlayer(player=player, seat=1, steps_used=0, gave_up=False))
     if partner is not None:
@@ -239,19 +241,32 @@ def undo(db: Session, game: Game, player: Player) -> None:
     db.commit()
 
 
-def use_hint(db: Session, game: Game, player: Player) -> dict:
+def hints_left(game: Game, seat: int | None) -> int:
     if game.mode in CLOCKED:
-        raise RuleError("No hints in a race or the daily ladder.")
+        gp = _seat(game, seat) if seat else None
+        return HINTS[game.length] - ((gp.hints_used or 0) if gp else 0)
+    return game.hints_left
+
+
+def use_hint(db: Session, game: Game, player: Player) -> dict:
+    """The next step on a shortest ladder: which letter to change, and to what."""
     seat = _require_turn(game, player)
-    if game.hints_left <= 0:
+    if hints_left(game, seat) <= 0:
         raise RuleError("No hints left in this game.")
     here = current_word(game, seat)
     step = engine.graph(game.length).next_step(here, game.end_word)
     if step is None:
         raise RuleError("No way forward from here. Try Undo.")
-    game.hints_left -= 1
+    if game.mode in CLOCKED:
+        gp = _seat(game, seat)
+        gp.hints_used = (gp.hints_used or 0) + 1
+        gp.steps_used = (gp.steps_used or 0) + HINT_PENALTY
+    else:
+        game.hints_left -= 1
     db.commit()
-    return {"position": engine.changed_position(here, step)}
+    pos = engine.changed_position(here, step)
+    return {"position": pos, "letter": step[pos], "word": step,
+            "penalty": HINT_PENALTY if game.mode in CLOCKED else 0}
 
 
 def give_up(db: Session, game: Game, player: Player) -> None:
@@ -354,7 +369,8 @@ def view(game: Game, player: Player, online: set[int] = frozenset()) -> dict:
         "my_seat": me,
         "my_turn": can_play(game, me),
         "steps_used": (my_seat.steps_used or 0) if race and my_seat else game.steps_used,
-        "hints_left": game.hints_left,
+        "hints_left": hints_left(game, me),
+        "hints_cost": HINT_PENALTY if race else 0,
         "stars": game.stars,
         "current": here,
         "distance": distance,
