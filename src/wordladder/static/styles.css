@@ -8,7 +8,7 @@
   --hit: #2e9b5b; --on-hit: #ffffff;
   --race: #c42a5c; --race-soft: #fbe1ea;
   --solo: #6a45d8; --solo-soft: #ece6ff;
-  --bg-glow: #ffe9dc;
+  --hero-muted: #a9b4bf;
   --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
   --body: "Atkinson Hyperlegible", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -24,7 +24,7 @@
     --hit: #2f8f57; --on-hit: #ffffff;
     --race: #f0709a; --race-soft: #3d1a27;
     --solo: #a58cff; --solo-soft: #251d45;
-    --bg-glow: #2a1d17;
+    --hero-muted: #55616d;
     color-scheme: dark;
   }
 }
@@ -32,8 +32,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
-  margin: 0; background: var(--bg) radial-gradient(120% 340px at 50% -80px, var(--bg-glow), transparent 70%) no-repeat;
-  color: var(--ink);
+  margin: 0; background: var(--bg); color: var(--ink);
   font: 16px/1.5 var(--body);
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
@@ -71,13 +70,12 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
   background: var(--ink); color: var(--bg); font: 800 .85rem var(--display);
 }
 .brand-tiles i.hit { background: var(--hit); color: var(--on-hit); }
-.brand-tiles i.p1 { background: var(--p1); color: var(--on-accent); }
 .brand-word { font: 800 1.45rem var(--display); letter-spacing: -.02em; }
 .brand.big { flex-direction: column; align-items: flex-start; gap: 6px; }
 .brand.big .brand-tiles i { width: 46px; height: 50px; border-radius: 9px; font-size: 1.7rem; }
 .brand.big .brand-word { font-size: 2.6rem; }
-.how-link { font-weight: 700; color: var(--p2); text-decoration: none; }
-.how-link:hover { text-decoration: underline; }
+.how-link { font-weight: 700; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 2px; text-decoration-color: var(--line); }
+.how-link:hover { text-decoration-color: var(--ink); }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0;
   background: var(--p1-soft); color: var(--p1); font: 800 1rem var(--display);
@@ -90,32 +88,33 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 /* home: 2x2 grid of ways to play */
 .modes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .mode-card {
-  --accent: var(--p1); --tint: var(--p1-soft);
-  position: relative; overflow: hidden;
+  --accent: var(--p1);
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
-  min-height: 156px; padding: 16px; border-radius: 18px; border: 1.5px solid transparent;
-  background: var(--tint); color: var(--ink); text-decoration: none; font: inherit; cursor: pointer;
-  transition: transform .1s ease, box-shadow .15s, border-color .15s;
+  min-height: 156px; padding: 16px; border-radius: 16px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); text-decoration: none; font: inherit; cursor: pointer;
+  transition: transform .1s ease, border-color .15s;
 }
-.mode-card:hover { border-color: var(--accent); box-shadow: 0 6px 20px -10px var(--accent); }
-.mode-card:active { transform: scale(.97); }
-.mode-card.solo { --accent: var(--solo); --tint: var(--solo-soft); }
-.mode-card.team { --accent: var(--p2); --tint: var(--p2-soft); }
-.mode-card.race { --accent: var(--race); --tint: var(--race-soft); }
-.mode-card.daily.done { --tint: var(--p1); color: var(--on-accent); }
-.mode-card.daily.done .mode-sub, .mode-card.daily.done .mode-foot, .mode-card.daily.done .mode-rank,
-.mode-card.daily.done .stars { color: inherit; }
-.mode-card.daily.done .mode-mark i { background: var(--on-accent); color: var(--p1); }
+.mode-card:hover { border-color: var(--ink); }
+.mode-card:active { transform: scale(.98); }
+.mode-card.solo { --accent: var(--solo); }
+.mode-card.team { --accent: var(--p2); }
+.mode-card.race { --accent: var(--race); }
+/* Daily is today's one thing to do, so it gets the contrast: an inverted card. */
+.mode-card.daily { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.mode-card.daily .mode-sub { color: var(--hero-muted); }
+.mode-card.daily .mode-mark i { background: var(--bg); color: var(--ink); }
+.mode-card.daily .mode-mark i:nth-child(2) { background: var(--p1); color: var(--on-accent); }
+.mode-card.daily .mode-foot, .mode-card.daily .mode-rank { color: var(--p1); }
 .mode-mark { display: flex; gap: 3px; margin-bottom: 8px; }
 .mode-mark i {
-  width: 24px; height: 26px; display: grid; place-items: center; border-radius: 6px; font-style: normal;
-  background: var(--accent); color: var(--on-accent); font: 800 .8rem var(--display);
+  width: 22px; height: 24px; display: grid; place-items: center; border-radius: 5px; font-style: normal;
+  background: var(--ink); color: var(--bg); font: 800 .75rem var(--display);
 }
-.mode-mark i:nth-child(2) { transform: translateY(-3px); }
-.mode-title { font: 800 1.3rem var(--display); letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
-.mode-rank { font: 800 1.3rem var(--display); color: var(--accent); }
+.mode-mark i:nth-child(2) { background: var(--accent); color: var(--on-accent); }
+.mode-title { font: 800 1.25rem var(--display); letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
+.mode-rank { font: 800 1.25rem var(--display); color: var(--p1); }
 .mode-sub { font-size: .875rem; color: var(--muted); line-height: 1.35; }
-.mode-foot { margin-top: auto; font-weight: 800; font-size: .9rem; color: var(--accent); }
+.mode-foot { margin-top: auto; font-weight: 700; font-size: .875rem; color: var(--ink); }
 .list-link {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
@@ -143,9 +142,8 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 }
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .45; cursor: default; }
-.btn.blue { background: var(--p2); }
-.btn.race { background: var(--race); }
-.btn.solo { background: var(--solo); }
+/* One button colour everywhere; mode colours live only in small marks and player tiles. */
+.btn.blue, .btn.race, .btn.solo { background: var(--p1); }
 .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); box-shadow: none; }
 .btn.quiet { background: var(--surface); color: var(--ink); border: 1px solid var(--line); min-height: 44px; font-size: .95rem; box-shadow: none; }
 .stack { display: flex; flex-direction: column; gap: 10px; }

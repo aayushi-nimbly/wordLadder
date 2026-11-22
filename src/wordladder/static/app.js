@@ -836,7 +836,7 @@ function modeMark(word) {
 
 function brand(big = false) {
   return `<span class="brand${big ? " big" : ""}" aria-label="Word Ladder">
-    <span class="brand-tiles" aria-hidden="true"><i>W</i><i class="hit">O</i><i>R</i><i class="p1">D</i></span>
+    <span class="brand-tiles" aria-hidden="true"><i>W</i><i class="hit">O</i><i>R</i><i>D</i></span>
     <span class="brand-word" aria-hidden="true">Ladder</span></span>`;
 }
 
