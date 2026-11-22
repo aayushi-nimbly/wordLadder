@@ -1,0 +1,23 @@
+[project]
+name = "wordladder"
+version = "0.1.0"
+description = "Word Ladder: solo and online co-op word ladder game"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.165.0",
+    "sqlalchemy>=2.1.9",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pillow>=13.0.0",
+    "pytest>=9.2.0",
+    "wordfreq>=3.1.1",
+]

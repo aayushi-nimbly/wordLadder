@@ -1,0 +1,445 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word Ladder Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: a single reading column for the plan, broken by a wide "workbench" strip of phone mockups. Letter tiles are the recurring motif. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#18212b; --muted:#5b6876; --line:#d9e0e7;
+  --p1:#e0672a; --p1-soft:#fbe5d9; --p2:#3a52c4; --p2-soft:#e1e6fa;
+  --tile:#fff; --tile-ink:#18212b; --ok:#23845a; --bad:#c23b3b;
+  --display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11161c; --surface:#19212a; --ink:#e6ebf0; --muted:#9aa7b4; --line:#2c3743;
+  --p1:#f08a52; --p1-soft:#3a2418; --p2:#8597ff; --p2-soft:#1f2648;
+  --tile:#232d38; --tile-ink:#eef2f6; --ok:#4cc28d; --bad:#ef6b6b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161c; --surface:#19212a; --ink:#e6ebf0; --muted:#9aa7b4; --line:#2c3743;
+  --p1:#f08a52; --p1-soft:#3a2418; --p2:#8597ff; --p2-soft:#1f2648;
+  --tile:#232d38; --tile-ink:#eef2f6; --ok:#4cc28d; --bad:#ef6b6b; color-scheme:dark}
+
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);padding-inline:16px;padding-block:32px 64px}
+.col{max-width:760px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2.2rem,6vw,3.4rem);font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.6rem;font-weight:700;margin-top:56px;margin-bottom:12px}
+h3{font-size:1.1rem;font-weight:700;margin-bottom:6px}
+p{margin:0 0 12px}
+.eyebrow{font:500 .75rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.15rem;color:var(--muted);max-width:60ch;margin-top:12px}
+ul{padding-left:20px;margin:0 0 12px} li{margin-bottom:4px}
+code{font:500 .88em var(--mono);background:var(--surface);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+
+/* hero ladder */
+.hero{display:grid;grid-template-columns:1fr auto;gap:32px;align-items:center}
+.mini-ladder{display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:4px}
+.t{width:30px;height:34px;display:grid;place-items:center;font:800 1rem var(--display);background:var(--tile);color:var(--tile-ink);border:1.5px solid var(--line);border-radius:6px;text-transform:uppercase}
+.t.ch{border-color:var(--p1);background:var(--p1-soft)}
+.t.ch2{border-color:var(--p2);background:var(--p2-soft)}
+.t.end{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+@media (max-width:560px){.hero{grid-template-columns:1fr}.mini-ladder{flex-direction:row;flex-wrap:wrap;gap:10px}}
+
+/* summary grid */
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:28px}
+.facts div{background:var(--surface);padding:14px 16px}
+.facts b{display:block;font-family:var(--display);font-size:1.05rem}
+.facts span{color:var(--muted);font-size:.9rem}
+
+/* modes */
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.mode{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px}
+.mode .tag{font:500 .72rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.rec{display:inline-block;font:500 .7rem var(--mono);letter-spacing:.08em;text-transform:uppercase;background:var(--p1-soft);color:var(--p1);padding:2px 8px;border-radius:99px;margin-left:6px}
+
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tw{overflow-x:auto}
+
+/* workbench of phone mockups */
+.bench{max-width:1180px;margin:24px auto 0;display:flex;gap:28px;overflow-x:auto;padding:8px 4px 20px;scroll-snap-type:x mandatory}
+.shot{flex:0 0 auto;scroll-snap-align:start;display:flex;flex-direction:column;gap:10px}
+.shot figcaption{font-size:.9rem;color:var(--muted);max-width:280px}
+.shot figcaption b{color:var(--ink);font-family:var(--display)}
+.phone{width:280px;height:560px;border:8px solid var(--ink);border-radius:34px;background:var(--bg);overflow:hidden;display:flex;flex-direction:column;font-size:13px;position:relative}
+.scr{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px 14px 14px}
+.appbar{display:flex;justify-content:space-between;align-items:center;font:800 1.05rem var(--display)}
+.appbar small{font:500 .65rem var(--mono);color:var(--muted);letter-spacing:.08em}
+.lbl{font:500 .62rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg span{flex:1;text-align:center;padding:7px 0;font-weight:700}
+.seg span.on{background:var(--ink);color:var(--bg)}
+.field{display:flex;gap:6px;align-items:center}
+.field .t{width:26px;height:30px;font-size:.9rem}
+.btn{display:block;text-align:center;padding:11px;border-radius:10px;font:700 .95rem var(--display);background:var(--p1);color:#fff}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.chip{font:500 .65rem var(--mono);padding:3px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.score{display:flex;gap:8px}
+.score div{flex:1;border-radius:10px;padding:7px 9px;border:2px solid transparent}
+.score .a{background:var(--p1-soft)} .score .a.turn{border-color:var(--p1)}
+.score .b{background:var(--p2-soft)}
+.score b{font:800 1.3rem var(--display);display:block}
+.ladder{display:flex;flex-direction:column;gap:5px;align-items:center;flex:1}
+.ladder .row .t{width:32px;height:34px}
+.ladder .who{width:14px;font:500 .6rem var(--mono);color:var(--muted);align-self:center}
+.gap{font:500 .65rem var(--mono);color:var(--muted);padding:2px 0}
+.input .t{border-style:dashed;border-color:var(--p1)}
+.input .t.f{border-style:solid}
+.kb{display:flex;flex-direction:column;gap:4px}
+.kb div{display:flex;gap:3px;justify-content:center}
+.kb span{flex:1;max-width:22px;height:28px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--line);border-radius:4px;font-weight:700;font-size:.72rem}
+.kb span.w{max-width:40px;font-size:.6rem}
+.toast{font-size:.75rem;text-align:center;color:var(--ok);font-weight:700}
+.win{text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center}
+.win h3{font-size:1.6rem}
+.path{display:flex;flex-direction:column;gap:3px;align-items:center}
+.path .t{width:24px;height:26px;font-size:.8rem}
+.cmp{width:100%;font-size:.78rem;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.cmp div{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--line)}
+.cmp div:last-child{border:0}
+.install{position:absolute;left:10px;right:10px;bottom:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;gap:10px;align-items:center;font-size:.75rem}
+.appicon{width:36px;height:36px;border-radius:9px;background:var(--ink);color:var(--bg);display:grid;place-items:center;font:800 .8rem var(--display);flex:none}
+
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps li{counter-increment:s;display:grid;grid-template-columns:44px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.steps li::before{content:"M" counter(s);font:500 .85rem var(--mono);color:var(--p1);padding-top:2px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:10px}
+.q b{font-family:var(--display)}
+pre.mermaid{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media (max-width:640px){.two{grid-template-columns:1fr}}
+</style>
+
+<div class="col">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Project plan · v0.3 · 22 Nov 2026</div>
+      <h1>Word Ladder</h1>
+      <p class="lede">An installable web game. Change one letter at a time to turn the start word into the end word. Play solo, or team up online with a friend anywhere: you add a word, they add the next, and you climb the ladder together.</p>
+    </div>
+    <div class="mini-ladder" aria-label="Example ladder COLD to WARM">
+      <div class="row"><span class="t">c</span><span class="t">o</span><span class="t">l</span><span class="t">d</span></div>
+      <div class="row"><span class="t">c</span><span class="t">o</span><span class="t ch">r</span><span class="t">d</span></div>
+      <div class="row"><span class="t">c</span><span class="t ch2">a</span><span class="t">r</span><span class="t">d</span></div>
+      <div class="row"><span class="t ch">w</span><span class="t">a</span><span class="t">r</span><span class="t">d</span></div>
+      <div class="row"><span class="t end">w</span><span class="t end">a</span><span class="t end">r</span><span class="t end">m</span></div>
+    </div>
+  </div>
+
+  <div class="facts">
+    <div><b>Installable PWA</b><span>Add to home screen, opens full-screen like an app</span></div>
+    <div><b>4 · 5 · 6 letters</b><span>Separate dictionaries and puzzle pools</span></div>
+    <div><b>Online team play</b><span>Two friends, two phones, one shared ladder</span></div>
+    <div><b>Python backend</b><span>FastAPI, WebSockets, Postgres, word graph</span></div>
+  </div>
+
+  <h2>What you asked for</h2>
+  <ul>
+    <li>A website that installs to the home screen and launches directly.</li>
+    <li>Single-player and two-player modes. In two-player, turns alternate: mine, then theirs.</li>
+    <li>Two-player is <b>online</b>, so friends in other cities can play on their own phones.</li>
+    <li>Two-player is a <b>team game</b>: you both work on the same ladder and win or lose together. No competing against each other.</li>
+    <li>Configurable word length (4, 5 or 6) and a custom start and end word.</li>
+    <li>The game suggests a start and end word that fit the chosen options.</li>
+    <li>Python for the tech stack.</li>
+  </ul>
+
+  <h2>How the modes play</h2>
+  <div class="modes">
+    <div class="mode">
+      <div class="tag">Solo</div>
+      <h3>Beat par</h3>
+      <p>Each puzzle has a <em>par</em>: the shortest possible ladder length. You score stars by how close you get to par. Hints cost a star.</p>
+    </div>
+    <div class="mode">
+      <div class="tag">2 players · online</div>
+      <h3>Team ladder</h3>
+      <p>One shared ladder. You add a word, then your friend adds the next, and so on. You win together when the ladder reaches the end word. The team earns stars for finishing close to par.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:20px">Team scoring</h3>
+  <div class="tw"><table>
+    <tr><th>Finished in</th><th>Team result</th></tr>
+    <tr><td>par (the shortest possible)</td><td>★★★ Perfect ladder</td></tr>
+    <tr><td>par + 1 or 2</td><td>★★</td></tr>
+    <tr><td>par + 3 or more</td><td>★</td></tr>
+    <tr><td>gave up together</td><td>Shows the optimal path, no stars</td></tr>
+  </table></div>
+  <p style="margin-top:10px">The result screen also shows who played which word, so you can see each person's contribution without turning it into a competition. Your team keeps a shared history: games played, average stars, and a streak of games finished.</p>
+
+  <h3 style="margin-top:20px">Two ways to play a team game</h3>
+  <div class="two">
+    <div>
+      <h3>Live</h3>
+      <p>Both of you have the game open. Moves appear on the other phone instantly over a WebSocket. An optional 30 or 60 second turn timer keeps it moving.</p>
+    </div>
+    <div>
+      <h3>Take your time</h3>
+      <p>Best across time zones. Play your word, close the app, and your friend gets a notification. Each turn has a 24-hour deadline, so a game can't stall forever. You can have several games going at once.</p>
+    </div>
+  </div>
+  <p>The same game works both ways. If both players are online it feels live. If not, it falls back to notifications. No mode switch is needed.</p>
+
+  <h3 style="margin-top:20px">Team rules in detail</h3>
+  <ul>
+    <li>A move must change exactly one letter and form a real word not already on the ladder.</li>
+    <li>An invalid word shows the reason (&ldquo;not a word&rdquo;, &ldquo;changed 2 letters&rdquo;) and the player can retry. Wrong guesses don't cost the team anything.</li>
+    <li>After each move, the game shows &ldquo;closer&rdquo;, &ldquo;same distance&rdquo; or &ldquo;further&rdquo;. This is measured by the real shortest path to the end word, which the server computes.</li>
+    <li><b>Undo:</b> the team can step back one rung if a word led into a dead end. Each undo adds one step to the final count.</li>
+    <li><b>Hints:</b> the team shares 2 hints per game. A hint shows which letter position to change next.</li>
+    <li>If a player misses the 24-hour turn deadline, the partner gets a reminder they can forward. The game waits; it never ends on its own.</li>
+    <li>The server checks every move, so the ladder is always the same on both phones.</li>
+  </ul>
+</div>
+
+<div class="col"><h2>Screen designs</h2><p>Phone-first. Scroll sideways for all six screens. Orange is Player 1 and blue is Player 2 everywhere, so whose turn it is reads at a glance.</p></div>
+<div class="bench">
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="appbar">Word Ladder <small>v1</small></div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+        <span class="btn">Play solo</span>
+        <span class="btn" style="background:var(--p2)">Play with a friend</span>
+      </div>
+      <div class="lbl" style="margin-top:6px">Your games</div>
+      <div class="cmp">
+        <div><span><b>Riya</b> · SLATE→CRUMB</span><span style="color:var(--p1);font-weight:700">Your turn</span></div>
+        <div><span><b>Kabir</b> · COLD→WARM</span><span style="color:var(--muted)">Their turn · 9h</span></div>
+        <div><span><b>Meera</b> · invite sent</span><span style="color:var(--muted)">Waiting</span></div>
+      </div>
+      <div class="install"><span class="appicon">WL</span><span><b>Install Word Ladder</b><br>Add to Home Screen to get turn alerts</span></div>
+    </div></div>
+    <figcaption><b>1. Home</b> Games where it's your turn sort to the top. The install prompt explains the benefit: notifications.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="appbar">New game <small>2P</small></div>
+      <div><div class="lbl">Players</div><div class="seg"><span>Solo</span><span class="on">2 players</span></div></div>
+      <div><div class="lbl">Letters</div><div class="seg"><span>4</span><span class="on">5</span><span>6</span></div></div>
+      <div><div class="lbl">Difficulty</div><div class="seg"><span>Easy</span><span class="on">Medium</span><span>Hard</span></div></div>
+      <div><div class="lbl">Start word</div><div class="field"><span class="t">s</span><span class="t">l</span><span class="t">a</span><span class="t">t</span><span class="t">e</span></div></div>
+      <div><div class="lbl">End word</div><div class="field"><span class="t">c</span><span class="t">r</span><span class="t">u</span><span class="t">m</span><span class="t">b</span></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip">↻ Suggest again</span><span class="chip" style="color:var(--ok);border-color:var(--ok)">✓ Solvable · par 6</span></div>
+      <span class="btn" style="margin-top:auto">Create invite</span>
+    </div></div>
+    <figcaption><b>2. Setup</b> Words are pre-filled with a suggestion. Edit them to use your own. The badge checks they are real words and that a path exists.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="appbar">Invite a friend <small>5 · MED</small></div>
+      <div style="text-align:center;margin-top:16px">
+        <div class="lbl">Game code</div>
+        <div class="field" style="justify-content:center"><span class="t">K</span><span class="t">7</span><span class="t">Q</span><span class="t">M</span></div>
+      </div>
+      <div class="cmp"><div><span style="font-family:var(--mono);font-size:.7rem">wordladder.app/j/K7QM</span><span style="font-weight:700">Copy</span></div></div>
+      <span class="btn" style="background:var(--p2)">Share link</span>
+      <p style="color:var(--muted);text-align:center;font-size:.78rem;margin:0">Send it on WhatsApp or any chat. Your friend taps it, types a name and joins. No signup.</p>
+      <div style="margin-top:auto;text-align:center">
+        <span class="chip">● Waiting for friend to join…</span>
+      </div>
+    </div></div>
+    <figcaption><b>3. Invite</b> A short code plus a link. Joining needs only a name, no account.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="score">
+        <div class="a turn"><span class="lbl">You · your turn</span><b style="font-size:.95rem">Team</b></div>
+        <div class="b"><span class="lbl">Riya ● online</span><b style="font-size:.95rem">Step 4 · par 6</b></div>
+      </div>
+      <div class="ladder">
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t">a</span><span class="t">t</span><span class="t">e</span></div>
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t">a</span><span class="t">t</span><span class="t ch">s</span></div>
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t ch2">o</span><span class="t">t</span><span class="t">s</span></div>
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t">o</span><span class="t ch">p</span><span class="t">s</span></div>
+        <div class="row input"><span class="t f">s</span><span class="t f">l</span><span class="t f">u</span><span class="t"></span><span class="t"></span></div>
+        <div class="gap">· · · 3 steps to go · · ·</div>
+        <div class="row"><span class="t end">c</span><span class="t end">r</span><span class="t end">u</span><span class="t end">m</span><span class="t end">b</span></div>
+      </div>
+      <div class="toast" style="color:var(--p2)">Riya played SLOPS · one step closer</div>
+      <div style="display:flex;justify-content:space-around"><span class="chip">💡 Hint (2)</span><span class="chip">↶ Undo</span></div>
+      <div class="kb">
+        <div><span>Q</span><span>W</span><span>E</span><span>R</span><span>T</span><span>Y</span><span>U</span><span>I</span><span>O</span><span>P</span></div>
+        <div><span>A</span><span>S</span><span>D</span><span>F</span><span>G</span><span>H</span><span>J</span><span>K</span><span>L</span></div>
+        <div><span class="w">ENTER</span><span>Z</span><span>X</span><span>C</span><span>V</span><span>B</span><span>N</span><span>M</span><span class="w">⌫</span></div>
+      </div>
+    </div></div>
+    <figcaption><b>4. Game (team)</b> The changed letter in each rung takes the colour of the player who played it. The top bar shows team progress against par, not a score per player.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="score">
+        <div class="a"><span class="lbl">You</span><b style="font-size:.95rem">Team</b></div>
+        <div class="b" style="border-color:var(--p2)"><span class="lbl">Riya · turn</span><b style="font-size:.95rem">Step 5 · par 6</b></div>
+      </div>
+      <div class="ladder" style="opacity:.55">
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t">a</span><span class="t">t</span><span class="t">e</span></div>
+        <div class="row"><span class="t">·</span><span class="t">·</span><span class="t">·</span><span class="t">·</span><span class="t">·</span></div>
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t ch">u</span><span class="t">p</span><span class="t">s</span></div>
+      </div>
+      <div style="text-align:center;display:flex;flex-direction:column;gap:6px">
+        <h3 style="color:var(--p2)">Riya's turn</h3>
+        <p style="color:var(--muted);margin:0;font-size:.8rem">You played <b>SLUPS</b>, one step closer. We'll notify you when Riya moves. Deadline in 23h 58m.</p>
+      </div>
+      <span class="btn ghost">Back to my games</span>
+    </div></div>
+    <figcaption><b>5. Waiting</b> After your move you can leave. A push notification brings you back when it's your turn.</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <div class="phone"><div class="scr">
+      <div class="win">
+        <div class="lbl">Ladder complete in 7 · par 6</div>
+        <h3>You did it together</h3>
+        <div style="font-size:1.6rem;color:var(--p1);letter-spacing:.1em">★★☆</div>
+        <div class="score" style="width:100%"><div class="a"><span class="lbl">You</span><b style="font-size:.95rem">4 words</b></div><div class="b"><span class="lbl">Riya</span><b style="font-size:.95rem">3 words</b></div></div>
+      </div>
+      <div class="lbl">Shortest possible · par 6</div>
+      <div class="path">
+        <div class="row"><span class="t">s</span><span class="t">l</span><span class="t">a</span><span class="t">t</span><span class="t">e</span></div>
+        <div class="row"><span class="t">·</span><span class="t">·</span><span class="t">·</span><span class="t">·</span><span class="t">·</span></div>
+        <div class="row"><span class="t end">c</span><span class="t end">r</span><span class="t end">u</span><span class="t end">m</span><span class="t end">b</span></div>
+      </div>
+      <span class="chip" style="align-self:center">Tap to reveal the optimal path</span>
+      <div style="display:flex;gap:8px;margin-top:auto"><span class="btn ghost" style="flex:1">Home</span><span class="btn" style="flex:1">Play again</span></div>
+    </div></div>
+    <figcaption><b>6. Result</b> Team stars, who played how many words, and the shortest possible ladder. Play again starts a new puzzle with the same friend.</figcaption>
+  </figure>
+</div>
+
+<div class="col">
+  <h2>User flow</h2>
+<pre class="mermaid">
+flowchart LR
+  A[Home] --> B{Mode}
+  B -->|Solo| C[Setup]
+  B -->|Play with friend| C
+  C -->|Suggest / check words| S[(Server: word engine)]
+  S --> C
+  C -->|Solo| G[Game]
+  C -->|Online| I[Invite link]
+  I -->|friend opens link + name| G
+  G -->|my move| M[(Server checks + saves)]
+  M -->|WebSocket if online| F[Friend's phone]
+  M -->|push if offline| F
+  M --> W[Waiting] -->|friend moved| G
+  G -->|ladder done| R[Result]
+  R -->|Play again, same friend| C
+  R --> A
+</pre>
+
+  <h2>Tech stack</h2>
+  <div class="tw"><table>
+    <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+    <tr><td>Backend</td><td><b>Python 3.12 + FastAPI</b></td><td>Fast, typed, auto-generated API docs, easy to deploy</td></tr>
+    <tr><td>Word engine</td><td>Plain Python: dictionary sets, a neighbour graph, BFS</td><td>No heavy library needed. Graphs are built once at startup and kept in memory.</td></tr>
+    <tr><td>Frontend</td><td>HTML + CSS + vanilla JS (Jinja templates served by FastAPI)</td><td>No build step. A word game UI is small enough not to need React.</td></tr>
+    <tr><td>Real-time</td><td>FastAPI WebSockets</td><td>Moves appear instantly when both players have the game open. Built into FastAPI, no extra service.</td></tr>
+    <tr><td>Database</td><td><b>PostgreSQL</b> via SQLAlchemy + Alembic (SQLite locally)</td><td>Games must survive server restarts and last for days. Stores players, games and moves.</td></tr>
+    <tr><td>Notifications</td><td>Web Push with <code>pywebpush</code> (VAPID keys)</td><td>"Your turn" alerts on the phone. Works on Android, and on iPhone once the app is added to the Home Screen (iOS 16.4+).</td></tr>
+    <tr><td>Players</td><td>Guest identity: name + random token in a cookie</td><td>No signup friction for friends. Optional "link to email" later so games move between devices.</td></tr>
+    <tr><td>Background jobs</td><td>APScheduler inside the app</td><td>Turn deadlines and reminder notifications</td></tr>
+    <tr><td>Installable</td><td>PWA: <code>manifest.json</code> + service worker + icons</td><td>Gives "Add to Home Screen", full-screen launch, and is required for push on iPhone</td></tr>
+    <tr><td>Tests</td><td>pytest + httpx test client</td><td>Covers move validation, BFS, puzzle generation, and game rules over the API</td></tr>
+    <tr><td>Hosting</td><td>Render or Fly.io, with managed Postgres (Render or Neon)</td><td>Needs a host that keeps WebSocket connections open, plus HTTPS. One server instance is plenty at first.</td></tr>
+  </table></div>
+
+  <h2>Word data and suggestions</h2>
+  <div class="two">
+    <div>
+      <h3>Two word lists per length</h3>
+      <ul>
+        <li><b>Valid words</b>: a broad list (e.g. ENABLE or SCOWL) used to accept moves. Lets players use less common words.</li>
+        <li><b>Common words</b>: the top few thousand by frequency, used only for suggested start and end words, so suggestions are always words people recognise.</li>
+        <li>An optional blocklist filters out offensive words.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>How a suggestion is made</h3>
+      <ul>
+        <li>At startup, build a graph per length: words are nodes, and words one letter apart are linked. Bucketing by wildcard pattern (<code>c_ld</code>) makes this fast.</li>
+        <li>Pick a random common word, run BFS, and choose an end word at the target distance.</li>
+        <li>The par (shortest path) is stored with the puzzle for scoring and hints.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="tw"><table style="margin-top:12px">
+    <tr><th>Difficulty</th><th>4 letters</th><th>5 letters</th><th>6 letters</th></tr>
+    <tr><td>Easy</td><td>par 3–4</td><td>par 3–4</td><td>par 4–5</td></tr>
+    <tr><td>Medium</td><td>par 5–6</td><td>par 5–6</td><td>par 6–7</td></tr>
+    <tr><td>Hard</td><td>par 7+</td><td>par 7+</td><td>par 8+</td></tr>
+  </table></div>
+  <p style="margin-top:10px;color:var(--muted);font-size:.92rem">These ranges are starting values to tune by playtesting. 6-letter graphs are sparser, so their ladders run longer.</p>
+
+  <h3 style="margin-top:20px">API sketch</h3>
+  <div class="tw"><table>
+    <tr><th>Endpoint</th><th>Does</th></tr>
+    <tr><td><code>GET /api/suggest?length=5&amp;difficulty=medium</code></td><td>Returns start, end and par</td></tr>
+    <tr><td><code>POST /api/puzzle/check</code></td><td>For custom words: are both real, is there a path, what is par</td></tr>
+    <tr><td><code>POST /api/players</code></td><td>Creates a guest player from a name and sets the identity cookie</td></tr>
+    <tr><td><code>POST /api/games</code></td><td>Creates a game (solo or online) and returns the invite code</td></tr>
+    <tr><td><code>POST /api/games/{code}/join</code></td><td>Friend joins from the invite link</td></tr>
+    <tr><td><code>GET /api/games</code></td><td>My games list, with whose turn it is</td></tr>
+    <tr><td><code>POST /api/games/{id}/moves</code></td><td>Plays a word. The server validates, saves, then notifies the teammate.</td></tr>
+    <tr><td><code>POST /api/games/{id}/undo</code></td><td>Removes the last rung; adds one step to the team count</td></tr>
+    <tr><td><code>WS /ws/games/{id}</code></td><td>Live channel: moves, scores, turn changes, "friend is online"</td></tr>
+    <tr><td><code>POST /api/push/subscribe</code></td><td>Saves this phone's push subscription</td></tr>
+    <tr><td><code>GET /api/games/{id}/hint</code></td><td>Next word on a shortest path (solo, or limited per game)</td></tr>
+  </table></div>
+
+  <h3 style="margin-top:20px">Data model</h3>
+  <div class="tw"><table>
+    <tr><th>Table</th><th>Key fields</th></tr>
+    <tr><td><code>players</code></td><td>id, name, token_hash, created_at</td></tr>
+    <tr><td><code>games</code></td><td>id, invite_code, mode, length, start_word, end_word, par, status, current_turn, turn_deadline, steps_used, hints_left, stars</td></tr>
+    <tr><td><code>game_players</code></td><td>game_id, player_id, seat (1 or 2)</td></tr>
+    <tr><td><code>moves</code></td><td>game_id, player_id, word, distance_after, undone, created_at</td></tr>
+    <tr><td><code>teams</code></td><td>player_a, player_b, games_played, games_finished, total_stars (shared history)</td></tr>
+    <tr><td><code>push_subscriptions</code></td><td>player_id, endpoint, keys</td></tr>
+  </table></div>
+
+  <h3 style="margin-top:20px">Folder layout</h3>
+<pre style="background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font:500 .85rem/1.6 var(--mono)">wordLadder/
+├── app/
+│   ├── main.py          # FastAPI app setup
+│   ├── engine.py        # dictionaries, graph, BFS, suggestions
+│   ├── rules.py         # move checks, turns, undo, hints, stars
+│   ├── models.py        # SQLAlchemy tables
+│   ├── routes/          # players, games, moves, push
+│   ├── realtime.py      # WebSocket connection manager
+│   ├── notify.py        # web push + deadline jobs
+│   ├── data/            # words_4.txt, common_5.txt, ...
+│   ├── templates/       # index.html
+│   └── static/          # app.js, styles.css, sw.js, manifest.json, icons/
+├── migrations/          # Alembic
+├── tests/
+└── pyproject.toml</pre>
+
+  <h2>Milestones</h2>
+  <ol class="steps">
+    <li><div><b>Word engine.</b> Load lists, build graphs, BFS, suggest, check, with pytest coverage.</div></li>
+    <li><div><b>Backend core.</b> Database tables, guest players, create/join game by invite code, alternating turns, server-side move checking, undo and team stars.</div></li>
+    <li><div><b>Game UI.</b> Home, setup, invite, game, waiting and result screens. Solo works end to end; online works by refreshing.</div></li>
+    <li><div><b>Live play.</b> WebSockets for instant moves and the "online" dot. Reconnects cleanly after the phone sleeps.</div></li>
+    <li><div><b>Installable + notifications.</b> Manifest, icons, service worker, web push "your turn" alerts, reminders.</div></li>
+    <li><div><b>Deploy.</b> Render or Fly.io with Postgres, then a real test with a friend in another city.</div></li>
+    <li><div><b>Polish.</b> Animations, sounds, team history and streaks, a daily team ladder.</div></li>
+  </ol>
+
+  <h2>Decisions for you</h2>
+  <div class="q"><b>Live, take-your-time, or both?</b> Recommended: both, as described above. Live-only is simpler (no push, no deadlines) but both players must be free at the same time.</div>
+  <div class="q"><b>Can a team have more than 2 people?</b> The plan is built for 2. Turns rotating through 3 or 4 friends is a small change if you want it.</div>
+  <div class="q"><b>Guest players or accounts?</b> Guests (name + cookie) are the fastest for friends to join. The catch: clearing the browser or switching phones loses your games. Email login can be added later to fix that.</div>
+  <div class="q"><b>Keep same-phone play too?</b> It's cheap to add on top, for when you're sitting together.</div>
+  <div class="q"><b>Domain name?</b> A free <code>onrender.com</code> address works. A custom domain looks nicer in invite links and costs about $10 a year.</div>
+</div>
