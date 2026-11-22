@@ -293,6 +293,7 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
   font: 700 1.05rem var(--body); touch-action: manipulation; padding: 0;
 }
 .kb button.wide { max-width: 66px; font-size: .75rem; letter-spacing: .04em; }
+.kb button.enter { background: var(--ink); color: var(--bg); box-shadow: none; }
 .kb button:active { background: var(--line); }
 
 .waiting { text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; padding: 8px 0; }

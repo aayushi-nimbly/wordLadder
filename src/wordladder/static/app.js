@@ -1249,7 +1249,7 @@ function keyboard() {
     <div class="kb">
       <div>${[...rows[0]].map(key).join("")}</div>
       <div>${[...rows[1]].map(key).join("")}</div>
-      <div><button type="button" class="wide" data-key="enter">ENTER</button>${[...rows[2]].map(key).join("")}<button type="button" class="wide" data-key="back" aria-label="Delete">⌫</button></div>
+      <div><button type="button" class="wide" data-key="back" aria-label="Delete">⌫</button>${[...rows[2]].map(key).join("")}<button type="button" class="wide enter" data-key="enter">ENTER</button></div>
     </div>`;
 }
 
