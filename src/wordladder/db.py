@@ -42,13 +42,13 @@ class Game(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(8), unique=True, index=True)
-    mode: Mapped[str] = mapped_column(String(8))  # solo | team
+    mode: Mapped[str] = mapped_column(String(8))  # solo | team | race
     length: Mapped[int]
     difficulty: Mapped[str | None] = mapped_column(String(8))  # None for custom words
     start_word: Mapped[str] = mapped_column(String(8))
     end_word: Mapped[str] = mapped_column(String(8))
     par: Mapped[int]
-    status: Mapped[str] = mapped_column(String(10))  # waiting | active | won | gave_up
+    status: Mapped[str] = mapped_column(String(10))  # waiting | active | won | gave_up | finished (race)
     turn_seat: Mapped[int] = mapped_column(default=1)
     steps_used: Mapped[int] = mapped_column(default=0)
     hints_left: Mapped[int] = mapped_column(default=2)
@@ -73,6 +73,11 @@ class GamePlayer(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("games.id"), index=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     seat: Mapped[int]
+    # Race mode only: each player climbs their own ladder.
+    steps_used: Mapped[int | None] = mapped_column(default=0)
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    gave_up: Mapped[bool | None] = mapped_column(default=False)
 
     game: Mapped[Game] = relationship(back_populates="seats")
     player: Mapped[Player] = relationship()

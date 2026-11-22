@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so it opens instantly from the home screen.
 // Game data (/api, /ws) always goes to the network. Also shows "your turn" notifications.
 
-const CACHE = "wordladder-v4";
+const CACHE = "wordladder-v5";
 const SHELL = [
   "/",
   "/static/styles.css",
@@ -33,15 +33,17 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(event.request).catch(() => caches.match("/")));
     return;
   }
-  // Static files: serve from cache, refresh in the background.
+  // Static files: network first so a new version shows up right away; cache when offline.
   event.respondWith(
-    caches.match(event.request).then((hit) => {
-      const fresh = fetch(event.request).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put(event.request, res.clone()));
+    fetch(event.request)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, copy));
+        }
         return res;
-      });
-      return hit || fresh;
-    }),
+      })
+      .catch(() => caches.match(event.request)),
   );
 });
 

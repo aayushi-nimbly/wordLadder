@@ -25,6 +25,7 @@ from py_vapid import Vapid02
 from pywebpush import WebPushException, webpush
 from sqlalchemy import select
 
+from . import rules
 from .db import Game, PushSubscription, SessionLocal, utcnow
 
 log = logging.getLogger(__name__)
@@ -92,8 +93,10 @@ def notes_for(game: Game, actor_id: int, event: str, online: set[int], new_game:
 
     Players who have this game open right now see it live, so they're skipped.
     """
-    if game.mode != "team":
+    if game.mode == "solo":
         return []
+    if game.mode == "race":
+        return _race_notes(game, actor_id, event, online, new_game)
     actor = next((s.player for s in game.seats if s.player_id == actor_id), None)
     name = actor.name if actor else "Your friend"
     others = [s for s in game.seats if s.player_id != actor_id and s.player_id not in online]
@@ -120,6 +123,35 @@ def notes_for(game: Game, actor_id: int, event: str, online: set[int], new_game:
     return notes
 
 
+def _race_notes(game: Game, actor_id: int, event: str, online: set[int], new_game: Game | None) -> list[Note]:
+    actor = next((s for s in game.seats if s.player_id == actor_id), None)
+    name = actor.player.name if actor else "Your friend"
+    url, tag = f"/g/{game.code}", f"game-{game.code}"
+    ladder = f"{_w(game.start_word)} → {_w(game.end_word)}"
+    notes = []
+    for seat in game.seats:
+        if seat.player_id == actor_id or seat.player_id in online:
+            continue
+        pid = seat.player_id
+        if event == "joined":
+            notes.append(Note(pid, f"{name} accepted your race", f"{ladder}. Your clock starts when you tap Start.", url, tag))
+        elif event in ("move", "gave_up") and game.status == "finished":
+            outcome = rules.race_outcome(game, seat.seat)
+            title = {"won": "You won the race 🏆", "lost": f"{name} won the race", "tie": "The race is a tie"}.get(
+                outcome, "The race is over")
+            notes.append(Note(pid, title, f"{ladder}. See both ladders.", url, tag))
+        elif event == "move" and actor and actor.finished_at and not seat.finished_at:
+            notes.append(Note(pid, f"{name} finished in {actor.steps_used} steps",
+                              f"Can you beat it? {ladder}", url, tag))
+        elif event == "gave_up":
+            notes.append(Note(pid, f"{name} gave up the race", f"Finish {ladder} to win.", url, tag))
+        elif event == "again" and new_game is not None:
+            notes.append(Note(pid, f"{name} challenged you to a new race",
+                              f"{_w(new_game.start_word)} → {_w(new_game.end_word)}", f"/g/{new_game.code}",
+                              f"game-{new_game.code}"))
+    return notes
+
+
 def reminder_for(game: Game) -> Note | None:
     turn = next((s for s in game.seats if s.seat == game.turn_seat), None)
     partner = next((s for s in game.seats if s.seat != game.turn_seat), None)
@@ -132,8 +164,9 @@ def reminder_for(game: Game) -> Note | None:
 # ---------- sending ----------
 
 
-def send_now(notes: list[Note]) -> int:
-    """Deliver notes to every device each player subscribed. Returns how many pushes were accepted."""
+def send_now(notes: list[Note], report: list[str] | None = None) -> int:
+    """Deliver notes to every device each player subscribed. Returns how many pushes were accepted.
+    Problems are logged, and also appended to `report` when given."""
     if not notes:
         return 0
     sent = 0
@@ -150,16 +183,21 @@ def send_now(notes: list[Note]) -> int:
                         vapid_claims={"sub": SUBJECT},
                         ttl=60 * 60 * 24,
                         timeout=10,
+                        headers={"Urgency": "high"},
                     )
                     sent += 1
                 except WebPushException as e:
                     status = getattr(e.response, "status_code", None)
+                    body = getattr(e.response, "text", "")[:200]
                     if status in (404, 410):  # the browser unsubscribed or the app was removed
                         db.delete(sub)
-                    else:
-                        log.warning("Push failed (%s): %s", status, e)
+                    log.warning("Push failed (%s) to %s: %s", status, sub.endpoint[:40], body or e)
+                    if report is not None:
+                        report.append(f"{status}: {body or e}")
                 except Exception as e:  # network trouble shouldn't break a move
                     log.warning("Push failed: %s", e)
+                    if report is not None:
+                        report.append(str(e))
         db.commit()
     return sent
 

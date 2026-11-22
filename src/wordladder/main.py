@@ -170,14 +170,18 @@ def my_games(player: Me, db: DB):
     for g in games:
         partner = next((s.player.name for s in g.seats if s.player_id != player.id), None)
         me_seat = rules.seat_of(g, player)
+        race = g.mode == "race"
         out.append({
             "code": g.code, "mode": g.mode, "status": g.status, "length": g.length,
             "start": g.start_word, "end": g.end_word, "par": g.par, "stars": g.stars,
             "steps_used": g.steps_used, "partner": partner,
-            "my_turn": g.status == "active" and g.turn_seat == me_seat,
+            # In a race you can always play until you've finished.
+            "my_turn": g.status == "active" and (
+                not rules._done(rules._seat(g, me_seat)) if race else g.turn_seat == me_seat),
+            "outcome": rules.race_outcome(g, me_seat) if race else None,
             "updated_at": g.updated_at.isoformat() + "Z",
         })
-    rank = {"my_turn": 0, "waiting": 1, "their_turn": 2, "won": 3, "gave_up": 3}
+    rank = {"my_turn": 0, "waiting": 1, "their_turn": 2, "won": 3, "gave_up": 3, "finished": 3}
     out.sort(key=lambda x: rank["my_turn" if x["my_turn"] else "their_turn" if x["status"] == "active" else x["status"]])
     active = [x for x in out if x["status"] in ("active", "waiting")]
     finished = [x for x in out if x["status"] not in ("active", "waiting")][:10]
@@ -190,14 +194,15 @@ def invite(code: str, db: DB):
     game = _load(db, code)
     return {
         "code": game.code, "host": game.seats[0].player.name, "length": game.length,
-        "open": game.mode == "team" and game.status == "waiting",
+        "mode": game.mode,
+        "open": game.mode != "solo" and game.status == "waiting",
     }
 
 
 @app.get("/api/games/{code}")
 def get_game(code: str, player: Me, db: DB):
     game = _load(db, code)
-    if rules.seat_of(game, player) is None and not (game.status == "waiting" and game.mode == "team"):
+    if rules.seat_of(game, player) is None and not (game.status == "waiting" and game.mode != "solo"):
         raise HTTPException(403, "This game is between two other players.")
     return _view(game, player)
 
@@ -221,6 +226,14 @@ async def move(code: str, body: MoveIn, player: Me, db: DB, bg: BackgroundTasks)
     rules.play_move(db, game, player, body.word)
     await hub.send_state(game)
     _notify(bg, game, player, "move")
+    return _view(game, player)
+
+
+@app.post("/api/games/{code}/start")
+async def start(code: str, player: Me, db: DB):
+    game = _load(db, code)
+    rules.start_race(db, game, player)
+    await hub.send_state(game)
     return _view(game, player)
 
 
@@ -313,10 +326,13 @@ def push_unsubscribe(body: EndpointIn, player: Me, db: DB):
 
 
 @app.post("/api/push/test")
-async def push_test(player: Me):
-    sent = await push.send([push.Note(player.id, "Notifications are on",
-                                      "We'll tell you when it's your turn.", "/", "test")])
-    return {"sent": sent}
+async def push_test(player: Me, db: DB):
+    """Sends a test notification to all of this player's devices and says what happened."""
+    devices = len(db.scalars(select(PushSubscription.id).where(PushSubscription.player_id == player.id)).all())
+    problems: list[str] = []
+    note = push.Note(player.id, "Notifications work", "We'll tell you when it's your turn.", "/", "test")
+    sent = await asyncio.to_thread(push.send_now, [note], problems)
+    return {"devices": devices, "sent": sent, "problems": problems}
 
 
 @app.websocket("/ws/games/{code}")
@@ -334,7 +350,9 @@ async def game_socket(ws: WebSocket, code: str):
     try:
         await _broadcast_fresh(code)  # tells the partner we're online
         while True:
-            await ws.receive_text()  # client pings keep the connection alive
+            msg = await ws.receive_text()  # "ping" keeps the connection alive
+            if msg in ("visible", "hidden") and hub.set_visible(code, player_id, ws, msg == "visible"):
+                await _broadcast_fresh(code)
     except WebSocketDisconnect:
         pass
     finally:
@@ -371,6 +389,7 @@ def service_worker():
 
 @app.get("/")
 @app.get("/new")
+@app.get("/help")
 @app.get("/g/{code}")
 @app.get("/j/{code}")
 def index(code: str | None = None):

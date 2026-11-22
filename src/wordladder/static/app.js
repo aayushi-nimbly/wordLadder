@@ -51,6 +51,11 @@ function ago(iso) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+const MODES = {
+  solo: { title: "Solo game", button: "Start game", cls: "" },
+  team: { title: "Team up with a friend", button: "Create invite", cls: " blue" },
+  race: { title: "Race a friend", button: "Create race", cls: " race" },
+};
 const starText = (n) => "★".repeat(n || 0) + "☆".repeat(3 - (n || 0));
 const inviteUrl = (code) => `${location.origin}/j/${code}`;
 
@@ -138,8 +143,14 @@ window.addEventListener("popstate", route);
 
 async function route() {
   closeSocket();
+  stopClock();
   const path = location.pathname;
   const gameMatch = path.match(/^\/(g|j)\/([A-Za-z0-9]+)/);
+
+  if (path === "/help") {  // readable before entering a name
+    if (!state.me) state.me = await api("/api/me").catch(() => null);
+    return renderHelp();
+  }
 
   if (!state.me) {
     try {
@@ -153,7 +164,10 @@ async function route() {
     }
   }
   window.scrollTo(0, 0);
-  if (path === "/new") return renderSetup(new URLSearchParams(location.search).get("mode") || "solo");
+  if (path === "/new") {
+    const mode = new URLSearchParams(location.search).get("mode");
+    return renderSetup(MODES[mode] ? mode : "solo");
+  }
   if (gameMatch) return openGame(gameMatch[2].toUpperCase());
   return renderHome();
 }
@@ -170,7 +184,9 @@ function renderError(message) {
 
 function renderName({ invite = null, rename = false } = {}) {
   const intro = invite?.open
-    ? `<p><b>${esc(invite.host)}</b> invited you to climb a ${invite.length}-letter word ladder together.</p>`
+    ? invite.mode === "race"
+      ? `<p><b>${esc(invite.host)}</b> challenged you to a ${invite.length}-letter word ladder race.</p>`
+      : `<p><b>${esc(invite.host)}</b> invited you to climb a ${invite.length}-letter word ladder together.</p>`
     : invite
       ? `<p class="muted">That game already has two players.</p>`
       : `<p class="muted">Change one letter at a time to turn one word into another. Play solo or team up with a friend.</p>`;
@@ -187,7 +203,7 @@ function renderName({ invite = null, rename = false } = {}) {
         <button class="btn" type="submit">${rename ? "Save" : invite?.open ? "Join the game" : "Start playing"}</button>
         ${rename ? `<a class="btn ghost" href="/" data-link>Cancel</a>` : ""}
       </form>
-      ${rename ? "" : `<p class="muted small">No signup. Your games are saved in this browser.</p>`}
+      ${rename ? "" : `<p class="muted small">No signup. Your games are saved in this browser. <a href="/help" data-link>How to play</a></p>`}
     </main>`;
   app.querySelector("#name").focus();
 }
@@ -204,15 +220,21 @@ async function renderHome() {
   }
   const row = (g) => {
     const who = g.mode === "solo" ? "Solo" : g.partner ? esc(g.partner) : "Invite sent";
+    const kind = { solo: "", team: "Team · ", race: "Race · " }[g.mode];
     let right;
-    if (g.status === "won") right = `<span class="stars" aria-label="${g.stars} stars">${starText(g.stars)}</span>`;
+    if (g.mode === "race" && g.status === "finished") {
+      right = { won: `<span class="pill turn">🏆 Won</span>`, lost: `<span class="pill wait">Lost</span>`,
+        tie: `<span class="pill wait">Tie</span>` }[g.outcome] ?? `<span class="pill wait">No winner</span>`;
+    } else if (g.mode === "race" && g.status === "active") {
+      right = g.my_turn ? `<span class="pill turn">Your go</span>` : `<span class="pill wait">Waiting for ${esc(g.partner)}</span>`;
+    } else if (g.status === "won") right = `<span class="stars" aria-label="${g.stars} stars">${starText(g.stars)}</span>`;
     else if (g.status === "gave_up") right = `<span class="pill wait">Gave up</span>`;
     else if (g.status === "waiting") right = `<span class="pill wait">Waiting for friend</span>`;
     else if (g.my_turn) right = `<span class="pill turn">Your turn</span>`;
     else right = `<span class="pill wait">Their turn · ${ago(g.updated_at)}</span>`;
     return `
       <a href="/g/${g.code}" data-link>
-        <span class="item-main"><b>${who}</b><span class="item-words">${up(g.start)} → ${up(g.end)}</span></span>
+        <span class="item-main"><b>${who}</b><span class="item-words">${kind}${up(g.start)} → ${up(g.end)}</span></span>
         ${right}
       </a>`;
   };
@@ -224,11 +246,19 @@ async function renderHome() {
     <main class="screen">
       <div class="top">
         <span class="logo">Word Ladder</span>
-        <button class="linkish" data-action="rename">Hi, ${esc(state.me.name)}</button>
+        <span class="top-actions">
+          <a class="help-btn" href="/help" data-link aria-label="How to play">?</a>
+          <button class="linkish" data-action="rename">Hi, ${esc(state.me.name)}</button>
+        </span>
       </div>
+      ${games.active.length || games.finished.length ? "" : `
+        <a class="banner" href="/help" data-link style="text-decoration:none">
+          <span><b>New to word ladders?</b><br><span class="small">See how to play in 30 seconds.</span></span><b aria-hidden="true">→</b>
+        </a>`}
       <div class="stack">
         <a class="btn" href="/new?mode=solo" data-link>Play solo</a>
-        <a class="btn blue" href="/new?mode=team" data-link>Play with a friend</a>
+        <a class="btn blue" href="/new?mode=team" data-link>Team up with a friend</a>
+        <a class="btn race" href="/new?mode=race" data-link>Race a friend</a>
       </div>
       <form class="row" data-form="join-code">
         <input class="input code-input" id="join-code" name="code" aria-label="Game code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" style="flex:2">
@@ -299,15 +329,15 @@ function drawSetup() {
     <main class="screen">
       <div class="top">
         <a class="icon-btn" href="/" data-link aria-label="Back">←</a>
-        <h2>${s.mode === "solo" ? "Solo game" : "Play with a friend"}</h2>
+        <h2>${MODES[s.mode].title}</h2>
         <span style="width:24px"></span>
       </div>
       <div class="field"><span class="label">Letters</span>${seg("length", [4, 5, 6], s.length)}</div>
       <div class="field"><span class="label">Words</span>${seg("source", ["suggest", "own"], s.source, ["✨ Suggest for me", "✏️ Choose my own"])}</div>
       <form class="stack" data-form="setup">
         ${words}
-        <button class="btn${s.mode === "team" ? " blue" : ""}" id="setup-go" type="submit" style="margin-top:8px">
-          ${s.mode === "solo" ? "Start game" : "Create invite"}
+        <button class="btn${MODES[s.mode].cls}" id="setup-go" type="submit" style="margin-top:8px">
+          ${MODES[s.mode].button}
         </button>
       </form>
     </main>`;
@@ -396,6 +426,11 @@ function closeSocket() {
   if (socket) { socket.onclose = null; socket.close(); socket = null; }
 }
 
+// The server only skips a notification when the game is actually on screen.
+function sendVisibility() {
+  if (socket?.readyState === 1) socket.send(document.hidden ? "hidden" : "visible");
+}
+
 function openSocket(code) {
   if (socketCode === code && socket) return;
   closeSocket();
@@ -404,6 +439,7 @@ function openSocket(code) {
   socket = new WebSocket(`${proto}://${location.host}/ws/games/${code}`);
   socket.onopen = () => {
     retryDelay = 1000;
+    sendVisibility();
     pingTimer = setInterval(() => socket?.readyState === 1 && socket.send("ping"), 25000);
   };
   socket.onmessage = (ev) => {
@@ -411,8 +447,8 @@ function openSocket(code) {
     if (msg.type === "state" && msg.game.code === state.game?.code) applyState(msg.game);
     if (msg.type === "again") {
       state.again = msg;
-      if (state.game && ["won", "gave_up"].includes(state.game.status)) drawGame();
-      else toast(`${msg.by} started a new ladder`);
+      if (state.game && ["won", "gave_up", "finished"].includes(state.game.status)) drawGame();
+      else toast(`${msg.by} started a new ${state.game?.mode === "race" ? "race" : "ladder"}`);
     }
   };
   socket.onclose = () => {
@@ -434,13 +470,20 @@ async function openGame(code) {
   }
   if (location.pathname.startsWith("/j/") && state.game.my_seat) history.replaceState(null, "", `/g/${code}`);
   drawGame();
-  if (state.game.my_seat && state.game.mode === "team") openSocket(code);
+  if (state.game.my_seat && state.game.mode !== "solo") openSocket(code);
 }
 
 function applyState(g) {
   const old = state.game;
   state.game = g;
-  if (old) {
+  if (old && g.mode === "race") {
+    const partner = g.players.find((p) => !p.me);
+    const was = old.race?.seats.find((x) => x.seat !== g.my_seat);
+    const now = g.race?.seats.find((x) => x.seat !== g.my_seat);
+    if (old.status === "waiting" && g.status === "active") toast(`${partner?.name ?? "Your friend"} accepted!`);
+    else if (now?.finished && !was?.finished) toast(`${partner?.name} finished in ${now.steps} steps`);
+    else if (now?.gave_up && !was?.gave_up) toast(`${partner?.name} gave up`);
+  } else if (old) {
     const partner = g.players.find((p) => !p.me);
     if (g.ladder.length > old.ladder.length) {
       const last = g.ladder[g.ladder.length - 1];
@@ -458,20 +501,23 @@ function applyState(g) {
 }
 
 document.addEventListener("visibilitychange", () => {
+  sendVisibility();
   if (document.hidden) return;
   document.title = "Word Ladder";
   // Phones drop sockets while asleep; resync when the app comes back.
   if (state.game && location.pathname.startsWith("/g/")) {
     api(`/api/games/${state.game.code}`).then(applyState).catch(() => {});
-    if (state.game.mode === "team" && state.game.my_seat && !socket) openSocket(state.game.code);
+    if (state.game.mode !== "solo" && state.game.my_seat && !socket) openSocket(state.game.code);
   }
 });
 
 function drawGame() {
   const g = state.game;
   if (!g) return;
+  stopClock();
   if (!g.my_seat) return drawJoin(g);
   if (g.status === "waiting") return drawInvite(g);
+  if (g.mode === "race") return g.status === "finished" ? drawRaceResult(g) : drawRace(g);
   if (g.status === "won" || g.status === "gave_up") return drawResult(g);
   drawPlay(g);
 }
@@ -481,14 +527,17 @@ function drawJoin(g) {
   app.innerHTML = `
     <main class="screen center">
       <span class="label">Invitation · ${g.length} letters</span>
-      <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} invited you</h1>
-      <p class="muted">Take turns adding one word each. Get from the start word to the end word together.</p>
+      <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} ${g.mode === "race" ? "challenged you to a race" : "invited you"}</h1>
+      <p class="muted">${g.mode === "race"
+        ? "You both solve the same puzzle, each on your own ladder. Fewest steps wins; if it's a tie, the faster time wins."
+        : "Take turns adding one word each. Get from the start word to the end word together."}</p>
       <div class="stack" style="align-items:center">
         ${tiles(g.start, { target: g.end })}
         <span class="muted">to</span>
         ${tiles(g.end, { cls: "end" })}
       </div>
-      <button class="btn blue" data-action="join">Join ${esc(host)}'s game</button>
+      <button class="btn${MODES[g.mode].cls}" data-action="join">${g.mode === "race" ? "Accept the race" : `Join ${esc(host)}'s game`}</button>
+      <a class="linkish" href="/help" data-link style="align-self:center">How to play</a>
     </main>`;
 }
 
@@ -507,9 +556,10 @@ function drawInvite(g) {
       </div>
       <div class="link-box"><code>${esc(url)}</code><button class="btn quiet" data-action="copy-invite" style="min-height:36px">Copy</button></div>
       ${navigator.share ? `<button class="btn blue" data-action="share-invite">Share link</button>` : ""}
-      <p class="muted small" style="text-align:center;margin:0">Send the link in any chat. Your friend taps it, types a name and joins. No signup.</p>
+      <p class="muted small" style="text-align:center;margin:0">Send the link in any chat. Your friend taps it, types a name and joins. No signup.${
+        g.mode === "race" ? " You'll both get this same puzzle." : ""}</p>
       <div class="card stack" style="align-items:center">
-        <span class="label">Your ladder</span>
+        <span class="label">${g.mode === "race" ? "The puzzle" : "Your ladder"}</span>
         ${tiles(g.start, { target: g.end, cls: "small" })}
         <span class="muted small">par ${g.par}</span>
         ${tiles(g.end, { cls: "small end" })}
@@ -531,16 +581,7 @@ function drawPlay(g) {
       <span class="name">${p.me ? "You" : esc(p.name)}</span>
     </div>`).join("");
 
-  let prev = g.start;
-  const rungs = [tiles(g.start, { target: g.end })];
-  g.ladder.forEach((m, i) => {
-    rungs.push(tiles(m.word, { prev, seat: m.seat, target: g.end, cls: i === g.ladder.length - 1 ? "rung-new" : "" }));
-    prev = m.word;
-  });
-  if (g.my_turn) rungs.push(`<div id="entry"></div>`);
-  const toGo = g.distance === null || g.distance < 0 ? "no way through" : `${g.distance} to go`;
-  rungs.push(`<div class="gap">· · · ${toGo} · · ·</div>`);
-  rungs.push(tiles(g.end, { cls: "end" }));
+  const { rungs, toGo } = ladderRungs(g);
 
   const bottom = g.my_turn
     ? `
@@ -572,9 +613,252 @@ function drawPlay(g) {
       ${bottom}
     </main>`;
   drawEntry();
+  scrollToEntry();
+}
+
+function ladderRungs(g) {
+  let prev = g.start;
+  const rungs = [tiles(g.start, { target: g.end })];
+  g.ladder.forEach((m, i) => {
+    rungs.push(tiles(m.word, { prev, seat: m.seat, target: g.end, cls: i === g.ladder.length - 1 ? "rung-new" : "" }));
+    prev = m.word;
+  });
+  const toGo = g.distance === null || g.distance < 0 ? "no way through" : `${g.distance} to go`;
+  if (g.current === g.end && g.ladder.length) {  // reached the end: show it as the last rung
+    rungs[rungs.length - 1] = tiles(g.end, { cls: "end" });
+    return { rungs, toGo };
+  }
+  if (g.my_turn) rungs.push(`<div id="entry"></div>`);
+  rungs.push(`<div class="gap">· · · ${toGo} · · ·</div>`);
+  rungs.push(tiles(g.end, { cls: "end" }));
+  return { rungs, toGo };
+}
+
+function scrollToEntry() {
   const ladderEl = document.getElementById("ladder");
-  const target = document.getElementById("entry") ?? ladderEl.lastElementChild?.previousElementSibling;
+  const target = document.getElementById("entry") ?? ladderEl?.lastElementChild?.previousElementSibling;
   target?.scrollIntoView({ block: "center" });
+}
+
+// ---------- race ----------
+
+let clockTimer = null;
+function stopClock() { clearInterval(clockTimer); clockTimer = null; }
+
+function fmtTime(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function startClock(iso) {
+  const started = new Date(iso).getTime();
+  const tick = () => {
+    const el = document.getElementById("clock");
+    if (el) el.textContent = fmtTime(Date.now() - started);
+  };
+  tick();
+  clockTimer = setInterval(tick, 1000);
+}
+
+function raceStatus(x) {
+  if (x.gave_up) return "Gave up";
+  if (x.finished) return `Done · ${x.steps} steps · ${fmtTime(x.time_ms)}`;
+  if (x.started) return `Racing · ${x.steps} step${x.steps === 1 ? "" : "s"}`;
+  return "Not started";
+}
+
+function drawRace(g) {
+  const mine = g.race.seats.find((x) => x.seat === g.my_seat);
+  const them = g.race.seats.find((x) => x.seat !== g.my_seat);
+  const partner = g.players.find((p) => !p.me);
+  const cards = g.players.map((p) => {
+    const x = g.race.seats.find((r) => r.seat === p.seat);
+    return `
+      <div class="who s${p.seat}">
+        <span class="dot${p.online || p.me ? " on" : ""}" aria-label="${p.online || p.me ? "online" : "away"}"></span>
+        <span class="stackish"><span class="name">${p.me ? "You" : esc(p.name)}</span><span class="small muted">${raceStatus(x)}</span></span>
+      </div>`;
+  }).join("");
+  const top = `
+      <div class="top">
+        <a class="icon-btn" href="/" data-link aria-label="Back to my games">←</a>
+        <div class="team" style="flex:1">${cards}</div>
+      </div>`;
+
+  if (!mine.started) {
+    app.innerHTML = `
+      <main class="screen">
+        ${top}
+        <div class="card stack" style="align-items:center;text-align:center;margin-block:auto">
+          <span class="label">Race · par ${g.par}</span>
+          ${tiles(g.start, { target: g.end })}
+          <span class="muted">to</span>
+          ${tiles(g.end, { cls: "end" })}
+          <p class="muted small" style="margin:0">Fewest steps wins. If you tie, the faster time wins.
+            Your clock starts when you tap Start, so start when you're ready.</p>
+          <button class="btn race" data-action="race-start" style="width:100%">Start</button>
+        </div>
+      </main>`;
+    return;
+  }
+
+  if (!g.my_turn) {  // finished or gave up, waiting for the other player
+    const { rungs } = ladderRungs(g);
+    app.innerHTML = `
+      <main class="game">
+        ${top}
+        <div class="ladder" id="ladder">${rungs.join("")}</div>
+        <div class="waiting card">
+          <h2>${mine.gave_up ? "You gave up" : `Done in ${mine.steps} steps · ${fmtTime(mine.time_ms)}`}</h2>
+          <p class="muted small" style="margin:0">Waiting for ${esc(partner?.name)} to finish (${raceStatus(them).toLowerCase()}).
+            We'll show both ladders when they're done.</p>
+          <a class="linkish" href="/" data-link>Back to my games</a>
+        </div>
+      </main>`;
+    return;
+  }
+
+  const { rungs, toGo } = ladderRungs(g);
+  app.innerHTML = `
+    <main class="game">
+      ${top}
+      <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>⏱ <span id="clock">0:00</span></span><span>${toGo}</span></div>
+      <div class="ladder" id="ladder">${rungs.join("")}</div>
+      <div class="feedback ${state.feedback?.kind ?? ""}" id="feedback">${esc(state.feedback?.text ?? "")}</div>
+      <div class="tools">
+        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
+        <button data-action="give-up" class="danger">Give up</button>
+      </div>
+      ${keyboard()}
+    </main>`;
+  drawEntry();
+  scrollToEntry();
+  startClock(mine.started_at);
+}
+
+function drawRaceResult(g) {
+  const partner = g.players.find((p) => !p.me);
+  const outcome = g.race.outcome;
+  const title = { won: "You win! 🏆", lost: `${esc(partner?.name)} wins`, tie: "It's a tie" }[outcome] ?? "No winner";
+  const ordered = [...g.race.seats].sort((a, b) => (a.seat === g.my_seat ? -1 : b.seat === g.my_seat ? 1 : 0));
+  const nameOf = (x) => (x.seat === g.my_seat ? "You" : esc(partner?.name));
+  const ladderOf = (x) => {
+    let prev = g.start;
+    const out = [tiles(g.start, { target: g.end, cls: "small" })];
+    for (const w of x.ladder ?? []) {
+      out.push(w === g.end ? tiles(w, { cls: "small end" }) : tiles(w, { prev, seat: x.seat, target: g.end, cls: "small" }));
+      prev = w;
+    }
+    return out.join("");
+  };
+  app.innerHTML = `
+    <main class="screen">
+      ${state.again ? `
+        <div class="banner"><span><b>${esc(state.again.by)}</b> challenged you to a rematch.</span>
+          <a class="btn race" href="/g/${esc(state.again.code)}" data-link>Open</a></div>` : ""}
+      <div class="result">
+        <span class="label">Race · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
+        <h1>${title}</h1>
+      </div>
+      <div class="contrib">
+        ${ordered.map((x) => `
+          <div class="s${x.seat}${x.seat === g.race.winner_seat ? " winner" : ""}">
+            <span class="label">${nameOf(x)}${x.seat === g.race.winner_seat ? " · 🏆" : ""}</span>
+            <b>${x.gave_up ? "Gave up" : `${x.steps} steps`}</b>
+            <span class="small">${x.gave_up ? `after ${x.steps} steps` : `${fmtTime(x.time_ms)} · ${starText(x.stars)}`}</span>
+          </div>`).join("")}
+      </div>
+      <div class="race-ladders">
+        ${ordered.map((x) => `
+          <div class="card stack"><span class="label">${nameOf(x)}</span><div class="mini-ladder">${ladderOf(x)}</div></div>`).join("")}
+      </div>
+      <details class="card">
+        <summary><b>Shortest possible ladder</b> <span class="muted">(${g.par} steps)</span></summary>
+        <div class="mini-ladder" style="margin-top:12px">
+          ${(g.solution ?? []).map((w, i, a) => tiles(w, { target: g.end, cls: i === a.length - 1 ? "small end" : "small" })).join("")}
+        </div>
+      </details>
+      <div class="row" style="margin-top:auto">
+        <a class="btn ghost" href="/" data-link>Home</a>
+        <button class="btn race" data-action="again">Rematch ${esc(partner?.name ?? "")}</button>
+      </div>
+    </main>`;
+}
+
+// ---------- how to play ----------
+
+function pushCheckText() {
+  return {
+    granted: "Notifications are on for this device.",
+    default: "Not set up on this device yet. The test below will ask for permission.",
+    denied: "Notifications are blocked for this site. Allow them in your browser or phone settings, then try again.",
+    "install-first": "On iPhone, notifications only work after you add Word Ladder to your Home Screen (Share → Add to Home Screen) and open it from there.",
+    unsupported: "This browser can't show notifications. Try Chrome, or Safari on an iPhone with the app added to the Home Screen.",
+  }[pushStatus()];
+}
+
+function renderHelp() {
+  const ex = ["cold", "cord", "card", "ward", "warm"];
+  let prev = null;
+  const example = ex.map((w, i) => {
+    const t = i === ex.length - 1 ? tiles(w, { cls: "small end" }) : tiles(w, { prev, seat: 1, target: "warm", cls: "small" });
+    prev = w;
+    return t;
+  }).join("");
+  const canTest = ["granted", "default"].includes(pushStatus());
+  app.innerHTML = `
+    <main class="screen help">
+      <div class="top">
+        <a class="icon-btn" href="${state.me ? "/" : "/"}" data-link aria-label="Back">←</a>
+        <h2>How to play</h2>
+        <span style="width:24px"></span>
+      </div>
+      <section class="help-example card">
+        <div class="mini-ladder">${example}</div>
+        <p class="small muted" style="margin:0">COLD becomes WARM in 4 steps, changing one letter each time.</p>
+      </section>
+      <section class="stack">
+        <h3>The rules</h3>
+        <ul class="rules">
+          <li>Start at the top word. Change <b>exactly one letter</b> to make a new, real word.</li>
+          <li>Keep going until you reach the <b>end word</b> at the bottom.</li>
+          <li>You can't use the same word twice in one ladder.</li>
+          <li>Letters keep their place. You can't add, remove or swap letters around.</li>
+        </ul>
+      </section>
+      <section class="stack">
+        <h3>Reading the tiles</h3>
+        <div class="legend">
+          <span class="t hit">A</span><span>Right letter in the right place for the end word.</span>
+          <span class="t s1">R</span><span>The letter that was just changed. Orange is you (or player 1), blue is your friend.</span>
+          <span class="t end">M</span><span>The end word you're climbing to.</span>
+        </div>
+      </section>
+      <section class="stack">
+        <h3>Scoring</h3>
+        <ul class="rules">
+          <li><b>Par</b> is the fewest steps the puzzle can be solved in.</li>
+          <li>Finish in par for ★★★, 1–2 extra steps for ★★, more for ★.</li>
+          <li><b>Hint</b> shows which letter to change next (2 per game). <b>Undo</b> takes back the last word, but that step still counts.</li>
+          <li>Stuck with "no way through"? That word is a dead end. Undo and try another.</li>
+        </ul>
+      </section>
+      <section class="stack">
+        <h3>Ways to play</h3>
+        <div class="modes-help">
+          <div><b>Solo</b><span>Just you and the puzzle.</span></div>
+          <div><b>Team</b><span>You and a friend take turns adding one word each to the same ladder, and win together. You get a notification when it's your turn.</span></div>
+          <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. No hints.</span></div>
+        </div>
+      </section>
+      <section class="stack">
+        <h3>Notifications</h3>
+        <p class="small" style="margin:0" id="push-state">${pushCheckText()}</p>
+        ${canTest && state.me ? `<button class="btn quiet" data-action="push-test">Send me a test notification</button>` : ""}
+        <p class="small muted" style="margin:0" id="push-result"></p>
+      </section>
+      <a class="btn" href="/" data-link>Let's play</a>
+    </main>`;
 }
 
 function drawEntry() {
@@ -633,7 +917,7 @@ async function submitWord() {
   try {
     const next = await api(`/api/games/${g.code}/moves`, { method: "POST", body: { word: state.entry } });
     state.entry = ""; state.hintPos = null;
-    if (next.status === "won") state.feedback = null;
+    if (next.status === "won" || next.distance === 0) state.feedback = null;
     else if (next.distance < 0 || next.distance === null) state.feedback = { text: "Dead end: no way to the end from here. Try Undo.", kind: "bad" };
     else if (next.distance < before) state.feedback = { text: "One step closer!", kind: "ok" };
     else if (next.distance === before) state.feedback = { text: "Same distance as before", kind: "meh" };
@@ -732,6 +1016,41 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
+  async "race-start"(el) {
+    el.disabled = true;
+    try {
+      state.game = await api(`/api/games/${state.game.code}/start`, { method: "POST" });
+      state.entry = ""; state.feedback = null;
+      drawGame();
+    } catch (e) {
+      toast(e.message);
+      el.disabled = false;
+    }
+  },
+  async "push-test"(el) {
+    const out = document.getElementById("push-result");
+    el.disabled = true;
+    // Ask first, straight from the tap: Safari ignores the request after an await.
+    const asked = pushStatus() === "default" ? Notification.requestPermission() : Promise.resolve(pushStatus());
+    try {
+      const permission = await asked;
+      document.getElementById("push-state").textContent = pushCheckText();
+      if (permission !== "granted") {
+        out.textContent = "Permission wasn't given, so nothing was sent.";
+        return;
+      }
+      out.textContent = "Sending…";
+      await syncPush();
+      const r = await api("/api/push/test", { method: "POST" });
+      if (!r.devices) out.textContent = "This device couldn't register for notifications. Close the app completely, open it again and retry.";
+      else if (r.sent) out.textContent = "Sent! It should arrive within a few seconds. If it doesn't, check that notifications for Word Ladder are allowed in your phone's settings and that Focus or Do Not Disturb is off.";
+      else out.textContent = `The notification service refused it: ${r.problems.join("; ") || "unknown reason"}`;
+    } catch (e) {
+      out.textContent = `Couldn't send a test: ${e.message}`;
+    } finally {
+      el.disabled = false;
+    }
+  },
   async "share-invite"() {
     const g = state.game;
     try {
@@ -776,6 +1095,7 @@ const actions = {
     try {
       state.game = await api(`/api/games/${state.game.code}/give-up`, { method: "POST" });
       if (state.game.status === "gave_up" && state.game.ladder.length === 0 && state.game.players.length < 2) return go("/", { replace: true });
+      if (state.game.mode === "race") state.feedback = null;
       drawGame();
     } catch (e) {
       toast(e.message);
