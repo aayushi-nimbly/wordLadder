@@ -800,33 +800,32 @@ function dailyCard() {
   const d = state.daily;
   if (!d) return `<span class="muted small">Daily ladder unavailable right now.</span>`;
   const m = d.mine;
+  const done = m?.status === "finished";
   const hours = Math.floor(d.resets_in / 3600);
-  const resets = hours ? `new in ${hours}h` : `new in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
+  const next = hours ? `Next in ${hours}h` : `Next in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
+  const side = [d.streak ? `🔥 ${d.streak}` : "", done ? next : ""].filter(Boolean).join(" · ");
   let body;
-  if (m?.status === "finished" && !m.gave_up) {
+  if (done && !m.gave_up) {
     body = `
       <div class="daily-result">
         <span><b>${m.steps} steps · ${fmtTime(m.time_ms)}</b> <span class="stars">${starText(m.stars)}</span></span>
-        <span class="daily-rank">#${m.rank} <span class="muted small">of ${m.of}</span></span>
+        <span class="daily-rank">#${m.rank}</span>
       </div>
       <div class="row">
         <a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>
         <a class="btn quiet" href="/g/${m.code}" data-link>My ladder</a>
       </div>`;
   } else if (m?.gave_up) {
-    body = `<p class="small muted" style="margin:0">You gave up on today's ladder. A new one comes at midnight.</p>
-      <a class="btn quiet" href="/leaderboard" data-link>See the leaderboard</a>`;
+    body = `<a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>`;
   } else if (m?.started) {
-    body = `<p class="small muted" style="margin:0">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"} · your clock is running</p>
-      <a class="btn" href="/g/${m.code}" data-link>Continue</a>`;
+    body = `<a class="btn" href="/g/${m.code}" data-link>Continue · ${m.steps} step${m.steps === 1 ? "" : "s"} so far</a>`;
   } else {
-    body = `<p class="small muted" style="margin:0">Same puzzle for everyone · ${d.length} letters · par ${d.par} · ${d.played} played today</p>
-      <button class="btn" data-action="daily-play">Play today's ladder</button>`;
+    body = `<button class="btn" data-action="daily-play">Play · ${d.length} letters</button>`;
   }
   return `
     <div class="daily-head">
-      <span class="label">Daily ladder · ${fmtDay(d.date)}</span>
-      <span class="small muted">${d.streak ? `🔥 ${d.streak}-day streak · ` : ""}${resets}</span>
+      <span class="label">Daily ladder${m?.gave_up ? " · gave up" : ""}</span>
+      ${side ? `<span class="small muted">${side}</span>` : ""}
     </div>
     ${body}`;
 }
