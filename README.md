@@ -64,7 +64,9 @@ The server signs notifications with its own key pair (VAPID). Locally the privat
 first run in `.vapid_private.pem`, which is git-ignored. Keep it secret: anyone with it can send
 notifications as your app.
 
-A player is only notified when they don't have that game open; if they do, the move shows up live.
+Notifications are always on; there's no setting. Browsers require one permission popup, which the
+app shows on the player's first tap (usually when they enter their name). A player is only notified
+when they don't have that game open; if they do, the move shows up live.
 They're sent when a friend joins, when it becomes your turn, when the ladder is finished or given up,
 when your friend starts a new ladder, and once if a turn has waited 24 hours.
 

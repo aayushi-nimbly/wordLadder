@@ -89,11 +89,9 @@ function keyBytes(b64) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-// Makes sure this device is subscribed and linked to the current player.
-// Only asks for permission when `ask` is set, which must come from a tap.
-async function syncPush({ ask = false } = {}) {
-  let status = pushStatus();
-  if (status === "default" && ask) status = await Notification.requestPermission();
+// Once permission is granted, makes sure this device is subscribed and linked to the current player.
+async function syncPush() {
+  const status = pushStatus();
   if (status !== "granted") return status;
   const reg = await navigator.serviceWorker.ready;
   const { key } = await api("/api/push/key");
@@ -108,18 +106,22 @@ async function syncPush({ ask = false } = {}) {
   return "granted";
 }
 
-function notifyPrompt({ showBlocked = false } = {}) {
-  const status = pushStatus();
-  if (status === "install-first") {
-    return `<div class="banner"><span class="small"><b>Get turn alerts on iPhone:</b> tap the Share button, then <b>Add to Home Screen</b>. Open Word Ladder from your home screen and turn on notifications there.</span></div>`;
-  }
-  if (status === "default") {
-    return `<div class="banner"><span><b>Know when it's your turn</b><br><span class="small">Get a notification when your friend plays.</span></span><button class="btn blue" data-action="enable-push">Turn on</button></div>`;
-  }
-  if (status === "denied" && showBlocked) {
-    return `<p class="muted small" style="margin:0">Notifications are blocked for this site. Allow them in your browser settings to hear when it's your turn.</p>`;
-  }
-  return "";
+// Notifications are always on. Browsers only allow the permission popup from a tap,
+// so the first tap anywhere in the app asks; after that the device stays subscribed.
+let askedForPush = false;
+function askForPushOnce() {
+  if (askedForPush || pushStatus() !== "default") return;
+  askedForPush = true;
+  // Called synchronously inside the tap; Safari ignores the request after an await.
+  Notification.requestPermission()
+    .then((result) => result === "granted" && state.me && syncPush())
+    .catch(() => {});
+}
+
+// iPhone only allows notifications for apps added to the Home Screen.
+function installHint() {
+  if (pushStatus() !== "install-first") return "";
+  return `<div class="banner"><span class="small"><b>Add Word Ladder to your Home Screen</b> to get turn notifications: tap the Share button, then <b>Add to Home Screen</b>, and play from there.</span></div>`;
 }
 
 // ---------- routing ----------
@@ -230,7 +232,7 @@ async function renderHome() {
         <button class="btn ghost" type="submit">Join</button>
       </form>
       ${install}
-      ${notifyPrompt({ showBlocked: true })}
+      ${installHint()}
       <section class="stack">
         <span class="label">Your games</span>
         <div class="list">${games.active.length ? games.active.map(row).join("") : `<div class="empty">No games in progress. Start one above.</div>`}</div>
@@ -485,7 +487,7 @@ function drawInvite(g) {
         <span class="muted small">par ${g.par}</span>
         ${tiles(g.end, { cls: "small end" })}
       </div>
-      ${notifyPrompt()}
+      ${installHint()}
       <p class="muted pulse" style="text-align:center;margin-top:auto">● Waiting for your friend to join…</p>
       <button class="linkish" data-action="give-up" style="align-self:center">Cancel this game</button>
     </main>`;
@@ -528,7 +530,6 @@ function drawPlay(g) {
           ? "They have the game open. Their word will appear here."
           : `They're away right now. Their word will show up here when they play. Last move ${ago(g.updated_at)}.`}</p>
         ${partner?.online ? "" : `<button class="btn quiet" data-action="copy-invite">Copy game link to remind them</button>`}
-        ${notifyPrompt()}
         <a class="linkish" href="/" data-link>Back to my games</a>
       </div>`;
 
@@ -703,22 +704,6 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
-  async "enable-push"(el) {
-    el.disabled = true;
-    try {
-      const result = await syncPush({ ask: true });
-      if (result === "granted") {
-        toast("Notifications are on");
-        api("/api/push/test", { method: "POST" }).catch(() => {});
-      } else if (result === "denied") {
-        toast("Notifications are blocked. You can allow them in your browser settings.");
-      }
-    } catch (e) {
-      toast(`Couldn't turn on notifications: ${e.message}`);
-    }
-    if (state.game && location.pathname.startsWith("/g/")) drawGame();
-    else if (location.pathname === "/") renderHome();
-  },
   async "share-invite"() {
     const g = state.game;
     try {
@@ -781,6 +766,7 @@ const actions = {
 };
 
 app.addEventListener("click", (ev) => {
+  if (state.me) askForPushOnce();
   const link = ev.target.closest("a[data-link]");
   if (link) {
     ev.preventDefault();
@@ -798,8 +784,10 @@ app.addEventListener("submit", async (ev) => {
   if (form === "name") {
     const name = new FormData(ev.target).get("name").trim();
     if (!name) return;
+    askForPushOnce();
     try {
       state.me = await api("/api/players", { method: "POST", body: { name } });
+      syncPush().catch(() => {});
       route();
     } catch (e) {
       toast(e.message);
