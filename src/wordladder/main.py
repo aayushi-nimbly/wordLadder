@@ -474,7 +474,7 @@ async def _broadcast_fresh(code: str) -> None:
 @app.get("/healthz")
 def healthz(db: DB):
     db.execute(select(1))
-    return {"ok": True}
+    return {"ok": True, "google_sign_in": google.client_secret() is not None}
 
 
 # ---------- the web app ----------
