@@ -52,7 +52,7 @@ function ago(iso) {
 }
 
 const MODES = {
-  solo: { title: "Solo game", button: "Start game", cls: "" },
+  solo: { title: "Solo game", button: "Start game", cls: " solo" },
   team: { title: "Team up with a friend", button: "Create invite", cls: " blue" },
   race: { title: "Race a friend", button: "Create race", cls: " race" },
 };
@@ -198,7 +198,7 @@ function renderName({ invite = null, rename = false } = {}) {
       : `<p class="muted">Change one letter at a time to turn one word into another. Play solo or team up with a friend.</p>`;
   app.innerHTML = `
     <main class="screen center">
-      <h1 class="logo-big">Word Ladder</h1>
+      <h1 class="logo-big">${brand(true)}</h1>
       ${rename ? "" : intro}
       <form class="stack" data-form="name">
         <div class="field">
@@ -217,7 +217,7 @@ function renderName({ invite = null, rename = false } = {}) {
 // ---------- home ----------
 
 async function renderHome() {
-  app.innerHTML = `<main class="screen"><div class="top"><span class="logo">Word Ladder</span></div></main>`;
+  app.innerHTML = `<main class="screen"><div class="top">${brand()}</div></main>`;
   let games = { active: [], finished: [] };
   try {
     [games, state.daily] = await Promise.all([api("/api/games"), api("/api/daily")]);
@@ -251,7 +251,7 @@ async function renderHome() {
   app.innerHTML = `
     <main class="screen">
       <div class="top">
-        <span class="logo">Word Ladder</span>
+        ${brand()}
         <span class="top-actions">
           <a class="how-link" href="/help" data-link>How to play</a>
           <button class="avatar" data-action="rename" aria-label="Change your name (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</button>
@@ -264,17 +264,17 @@ async function renderHome() {
       <section class="modes-grid" aria-label="Ways to play">
         ${dailyCard()}
         <a class="mode-card solo" href="/new?mode=solo" data-link>
-          ${modeMark(1)}<b class="mode-title">Solo</b>
+          ${modeMark("ONE")}<b class="mode-title">Solo</b>
           <span class="mode-sub">Your own pace, no clock</span>
           <span class="mode-foot">Start →</span>
         </a>
         <a class="mode-card team" href="/new?mode=team" data-link>
-          ${modeMark(1)}<b class="mode-title">Team</b>
+          ${modeMark("DUO")}<b class="mode-title">Team</b>
           <span class="mode-sub">Take turns with a friend, win together</span>
           <span class="mode-foot">Invite →</span>
         </a>
         <a class="mode-card race" href="/new?mode=race" data-link>
-          ${modeMark(1)}<b class="mode-title">Race</b>
+          ${modeMark("RUN")}<b class="mode-title">Race</b>
           <span class="mode-sub">Same puzzle, fewest steps wins</span>
           <span class="mode-foot">Challenge →</span>
         </a>
@@ -830,8 +830,14 @@ function drawRaceResult(g) {
 
 const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
-function modeMark(lit) {
-  return `<span class="mode-mark" aria-hidden="true">${[0, 1, 2].map((i) => `<i${i === lit ? " class=\"on\"" : ""}></i>`).join("")}</span>`;
+function modeMark(word) {
+  return `<span class="mode-mark" aria-hidden="true">${[...word].map((ch) => `<i>${ch}</i>`).join("")}</span>`;
+}
+
+function brand(big = false) {
+  return `<span class="brand${big ? " big" : ""}" aria-label="Word Ladder">
+    <span class="brand-tiles" aria-hidden="true"><i>W</i><i class="hit">O</i><i>R</i><i class="p1">D</i></span>
+    <span class="brand-word" aria-hidden="true">Ladder</span></span>`;
 }
 
 // The Daily card in the home grid; what it says depends on whether you've played today.
@@ -844,7 +850,7 @@ function dailyCard() {
   if (m?.status === "finished" && !m.gave_up) {
     return `
       <a class="mode-card daily done" href="/g/${m.code}" data-link>
-        ${modeMark(2)}
+        ${modeMark("DAY")}
         <b class="mode-title">Daily <span class="mode-rank">#${m.rank}</span></b>
         <span class="mode-sub">${m.steps} steps · ${fmtTime(m.time_ms)} <span class="stars">${starText(m.stars)}</span></span>
         <span class="mode-foot">Next in ${nextIn(d.resets_in)}${streak}</span>
@@ -853,7 +859,7 @@ function dailyCard() {
   if (m?.gave_up) {
     return `
       <a class="mode-card daily" href="/leaderboard" data-link>
-        ${modeMark(2)}<b class="mode-title">Daily</b>
+        ${modeMark("DAY")}<b class="mode-title">Daily</b>
         <span class="mode-sub">You gave up today</span>
         <span class="mode-foot">Next in ${nextIn(d.resets_in)}</span>
       </a>`;
@@ -861,14 +867,14 @@ function dailyCard() {
   if (m?.started) {
     return `
       <a class="mode-card daily" href="/g/${m.code}" data-link>
-        ${modeMark(1)}<b class="mode-title">Daily</b>
+        ${modeMark("DAY")}<b class="mode-title">Daily</b>
         <span class="mode-sub">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"}</span>
         <span class="mode-foot">Continue →</span>
       </a>`;
   }
   return `
     <button class="mode-card daily" data-action="daily-play">
-      ${modeMark(0)}<b class="mode-title">Daily</b>
+      ${modeMark("DAY")}<b class="mode-title">Daily</b>
       <span class="mode-sub">Today's puzzle for everyone · ${d.length} letters</span>
       <span class="mode-foot">Play →${streak}</span>
     </button>`;
