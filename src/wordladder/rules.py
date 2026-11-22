@@ -5,6 +5,8 @@ Modes:
   team - two players take turns on one shared ladder and win together
   race - two players each climb their own ladder for the same puzzle; fewest steps wins,
          then the faster time
+  daily - today's puzzle, the same for everyone, played once per word length with a clock
+          (see daily.py)
 
 Every function here takes the acting player and raises RuleError with a message
 that can be shown to them as-is.
@@ -20,7 +22,8 @@ from sqlalchemy.orm import Session
 from . import engine
 from .db import Game, GamePlayer, Move, Player, utcnow
 
-MODES = ("solo", "team", "race")
+MODES = ("solo", "team", "race")  # what players can create; daily games come from daily.py
+CLOCKED = ("race", "daily")  # each player has their own ladder and a clock that starts on Start
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
 HINTS_PER_GAME = 2
 
@@ -127,7 +130,7 @@ def join_game(db: Session, game: Game, player: Player) -> None:
 
 def ladder(game: Game, seat: int | None = None) -> list[Move]:
     """The rungs played so far. In a race each seat has its own ladder."""
-    return [m for m in game.moves if not m.undone and (game.mode != "race" or m.seat == seat)]
+    return [m for m in game.moves if not m.undone and (game.mode not in CLOCKED or m.seat == seat)]
 
 
 def current_word(game: Game, seat: int | None = None) -> str:
@@ -142,7 +145,7 @@ def _done(gp: GamePlayer) -> bool:
 def can_play(game: Game, seat: int | None) -> bool:
     if seat is None or game.status != "active":
         return False
-    if game.mode == "race":
+    if game.mode in CLOCKED:
         gp = _seat(game, seat)
         return gp.started_at is not None and not _done(gp)
     return seat == game.turn_seat
@@ -156,12 +159,12 @@ def _require_turn(game: Game, player: Player) -> int:
         raise RuleError("Waiting for your friend to join.")
     if game.status != "active":
         raise RuleError("This game is over.")
-    if game.mode == "race":
+    if game.mode in CLOCKED:
         gp = _seat(game, seat)
         if gp.started_at is None:
-            raise RuleError("Tap Start to begin your race.")
+            raise RuleError("Tap Start to begin.")
         if _done(gp):
-            raise RuleError("You've already finished this race.")
+            raise RuleError("You've already finished this one.")
     elif seat != game.turn_seat:
         raise RuleError("It's your friend's turn.")
     return seat
@@ -170,7 +173,7 @@ def _require_turn(game: Game, player: Player) -> int:
 def start_race(db: Session, game: Game, player: Player) -> None:
     """Starts this player's clock. Each racer starts whenever they're ready."""
     seat = seat_of(game, player)
-    if seat is None or game.mode != "race":
+    if seat is None or game.mode not in CLOCKED:
         raise RuleError("This isn't a race you're in.")
     if game.status != "active":
         raise RuleError("Waiting for your friend to join." if game.status == "waiting" else "This race is over.")
@@ -182,7 +185,8 @@ def start_race(db: Session, game: Game, player: Player) -> None:
 
 
 def _finish_race_if_done(game: Game) -> None:
-    if len(game.seats) == 2 and all(_done(s) for s in game.seats):
+    players = 1 if game.mode == "daily" else 2
+    if len(game.seats) == players and all(_done(s) for s in game.seats):
         game.status = "finished"
 
 
@@ -207,7 +211,7 @@ def play_move(db: Session, game: Game, player: Player, word: str) -> Move:
     move = Move(seat=seat, word=word, distance_after=-1 if dist is None else dist)
     game.moves.append(move)
     game.updated_at = utcnow()
-    if game.mode == "race":
+    if game.mode in CLOCKED:
         gp = _seat(game, seat)
         gp.steps_used = (gp.steps_used or 0) + 1
         if word == game.end_word:
@@ -236,8 +240,8 @@ def undo(db: Session, game: Game, player: Player) -> None:
 
 
 def use_hint(db: Session, game: Game, player: Player) -> dict:
-    if game.mode == "race":
-        raise RuleError("No hints in a race.")
+    if game.mode in CLOCKED:
+        raise RuleError("No hints in a race or the daily ladder.")
     seat = _require_turn(game, player)
     if game.hints_left <= 0:
         raise RuleError("No hints left in this game.")
@@ -256,7 +260,7 @@ def give_up(db: Session, game: Game, player: Player) -> None:
         raise RuleError("You're not in this game.")
     if game.status not in ("active", "waiting"):
         raise RuleError("This game is over.")
-    if game.mode == "race" and game.status == "active":
+    if game.mode in CLOCKED and game.status == "active":
         gp = _seat(game, seat)
         if _done(gp):
             raise RuleError("You've already finished this race.")
@@ -271,6 +275,8 @@ def give_up(db: Session, game: Game, player: Player) -> None:
 def play_again(db: Session, game: Game, player: Player, length: int, difficulty: str) -> Game:
     if seat_of(game, player) is None:
         raise RuleError("You're not in this game.")
+    if game.mode == "daily":
+        raise RuleError("There's one daily ladder per day. Come back tomorrow!")
     partner = next((s.player for s in game.seats if s.player_id != player.id), None)
     return create_game(db, player, game.mode, length, difficulty, partner=partner)
 
@@ -329,13 +335,13 @@ def _race_view(game: Game, me: int | None) -> dict:
 def view(game: Game, player: Player, online: set[int] = frozenset()) -> dict:
     """Everything a player's screen needs, from their point of view."""
     me = seat_of(game, player)
-    race = game.mode == "race"
+    race = game.mode in CLOCKED
     g = engine.graph(game.length)
     here = current_word(game, me)
     distance = g.distance(here, game.end_word)
     finished = game.status in ("won", "gave_up", "finished")
     my_seat = _seat(game, me) if me else None
-    return {
+    out = {
         "code": game.code,
         "mode": game.mode,
         "length": game.length,
@@ -362,4 +368,9 @@ def view(game: Game, player: Player, online: set[int] = frozenset()) -> dict:
         "race": _race_view(game, me) if race else None,
         "solution": g.shortest_path(game.start_word, game.end_word) if finished else None,
         "updated_at": game.updated_at.isoformat() + "Z",
+        "daily_date": game.daily_date,
     }
+    # Today's words stay secret until you tap Start, so nobody can plan before the clock runs.
+    if game.mode == "daily" and (my_seat is None or my_seat.started_at is None):
+        out.update(start=None, end=None, current=None, distance=None, ladder=[])
+    return out

@@ -42,7 +42,7 @@ class Game(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(8), unique=True, index=True)
-    mode: Mapped[str] = mapped_column(String(8))  # solo | team | race
+    mode: Mapped[str] = mapped_column(String(8))  # solo | team | race | daily
     length: Mapped[int]
     difficulty: Mapped[str | None] = mapped_column(String(8))  # None for custom words
     start_word: Mapped[str] = mapped_column(String(8))
@@ -56,6 +56,7 @@ class Game(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
     reminded_at: Mapped[datetime | None]  # last "still your turn" reminder
+    daily_date: Mapped[str | None] = mapped_column(String(10), index=True)  # "2026-11-23" for daily ladders
 
     seats: Mapped[list[GamePlayer]] = relationship(
         back_populates="game", order_by="GamePlayer.seat", cascade="all, delete-orphan"

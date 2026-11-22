@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import engine, push, rules
+from . import daily, engine, push, rules
 from .db import Game, GamePlayer, Player, PushSubscription, SessionLocal, get_db, init_db
 from .realtime import hub
 
@@ -164,7 +164,9 @@ def new_game(body: NewGameIn, player: Me, db: DB):
 @app.get("/api/games")
 def my_games(player: Me, db: DB):
     games = db.scalars(
-        select(Game).join(GamePlayer).where(GamePlayer.player_id == player.id).order_by(Game.updated_at.desc())
+        select(Game).join(GamePlayer)
+        .where(GamePlayer.player_id == player.id, Game.mode != "daily")  # dailies live on their own card
+        .order_by(Game.updated_at.desc())
     ).all()
     out = []
     for g in games:
@@ -276,6 +278,36 @@ async def again(code: str, body: AgainIn, player: Me, db: DB, bg: BackgroundTask
     await hub.send_event(old.code, {"type": "again", "code": new.code, "by": player.name}, except_player=player)
     _notify(bg, old, player, "again", new)
     return _view(new, player)
+
+
+# ---------- daily ladder and leaderboards ----------
+
+
+@app.get("/api/daily")
+def daily_overview(player: Me, db: DB):
+    return daily.overview(db, player)
+
+
+@app.post("/api/daily/{length}")
+def daily_open(length: int, player: Me, db: DB):
+    return _view(daily.open_daily(db, player, length), player)
+
+
+@app.get("/api/leaderboard/today")
+def leaderboard_today(request: Request, db: DB, length: int = 5):
+    if length not in engine.LENGTHS:
+        raise HTTPException(400, "Word length must be 4, 5 or 6.")
+    return daily.day_board(db, _player_from_token(db, request.cookies.get(COOKIE)), length)
+
+
+@app.get("/api/leaderboard/week")
+def leaderboard_week(request: Request, db: DB):
+    return daily.week_board(db, _player_from_token(db, request.cookies.get(COOKIE)))
+
+
+@app.get("/api/leaderboard/friends")
+def leaderboard_friends(player: Me, db: DB):
+    return daily.friends_board(db, player)
 
 
 # ---------- notifications ----------
@@ -390,6 +422,7 @@ def service_worker():
 @app.get("/")
 @app.get("/new")
 @app.get("/help")
+@app.get("/leaderboard")
 @app.get("/g/{code}")
 @app.get("/j/{code}")
 def index(code: str | None = None):

@@ -147,6 +147,10 @@ async function route() {
   const path = location.pathname;
   const gameMatch = path.match(/^\/(g|j)\/([A-Za-z0-9]+)/);
 
+  if (path === "/leaderboard") {  // also readable before entering a name
+    if (!state.me) state.me = await api("/api/me").catch(() => null);
+    return renderLeaderboard();
+  }
   if (path === "/help") {  // readable before entering a name
     if (!state.me) state.me = await api("/api/me").catch(() => null);
     return renderHelp();
@@ -214,7 +218,7 @@ async function renderHome() {
   app.innerHTML = `<main class="screen"><div class="top"><span class="logo">Word Ladder</span></div></main>`;
   let games = { active: [], finished: [] };
   try {
-    games = await api("/api/games");
+    [games, state.daily] = await Promise.all([api("/api/games"), api("/api/daily")]);
   } catch (e) {
     toast(e.message);
   }
@@ -247,14 +251,16 @@ async function renderHome() {
       <div class="top">
         <span class="logo">Word Ladder</span>
         <span class="top-actions">
+          <a class="help-btn" href="/leaderboard" data-link aria-label="Leaderboard">🏆</a>
           <a class="help-btn" href="/help" data-link aria-label="How to play">?</a>
           <button class="linkish" data-action="rename">Hi, ${esc(state.me.name)}</button>
         </span>
       </div>
-      ${games.active.length || games.finished.length ? "" : `
+      ${games.active.length || games.finished.length || state.daily?.puzzles.some((p) => p.mine) ? "" : `
         <a class="banner" href="/help" data-link style="text-decoration:none">
           <span><b>New to word ladders?</b><br><span class="small">See how to play in 30 seconds.</span></span><b aria-hidden="true">→</b>
         </a>`}
+      <section class="daily card" id="daily-card">${dailyCard()}</section>
       <div class="stack">
         <a class="btn" href="/new?mode=solo" data-link>Play solo</a>
         <a class="btn blue" href="/new?mode=team" data-link>Team up with a friend</a>
@@ -470,7 +476,7 @@ async function openGame(code) {
   }
   if (location.pathname.startsWith("/j/") && state.game.my_seat) history.replaceState(null, "", `/g/${code}`);
   drawGame();
-  if (state.game.my_seat && state.game.mode !== "solo") openSocket(code);
+  if (state.game.my_seat && ["team", "race"].includes(state.game.mode)) openSocket(code);
 }
 
 function applyState(g) {
@@ -507,7 +513,7 @@ document.addEventListener("visibilitychange", () => {
   // Phones drop sockets while asleep; resync when the app comes back.
   if (state.game && location.pathname.startsWith("/g/")) {
     api(`/api/games/${state.game.code}`).then(applyState).catch(() => {});
-    if (state.game.mode !== "solo" && state.game.my_seat && !socket) openSocket(state.game.code);
+    if (["team", "race"].includes(state.game.mode) && state.game.my_seat && !socket) openSocket(state.game.code);
   }
 });
 
@@ -517,6 +523,7 @@ function drawGame() {
   stopClock();
   if (!g.my_seat) return drawJoin(g);
   if (g.status === "waiting") return drawInvite(g);
+  if (g.mode === "daily") return g.status === "finished" ? drawDailyResult(g) : drawDaily(g);
   if (g.mode === "race") return g.status === "finished" ? drawRaceResult(g) : drawRace(g);
   if (g.status === "won" || g.status === "gave_up") return drawResult(g);
   drawPlay(g);
@@ -785,6 +792,240 @@ function drawRaceResult(g) {
     </main>`;
 }
 
+// ---------- daily ladder ----------
+
+const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+
+function dailyLength() {
+  try { return Number(localStorage.getItem("wl-daily-length")) || 5; } catch { return 5; }
+}
+
+function dailyCard() {
+  const d = state.daily;
+  if (!d) return `<span class="muted small">Daily ladder unavailable right now.</span>`;
+  const n = dailyLength();
+  const p = d.puzzles.find((x) => x.length === n);
+  const m = p.mine;
+  const hours = Math.floor(d.resets_in / 3600);
+  const resets = hours ? `new in ${hours}h` : `new in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
+  const lengths = d.puzzles.map((x) => {
+    const done = x.mine?.status === "finished" ? " ✓" : "";
+    return `<button type="button" data-action="daily-length" data-value="${x.length}" aria-pressed="${x.length === n}">${x.length}${done}</button>`;
+  }).join("");
+  let body;
+  if (m?.status === "finished" && !m.gave_up) {
+    body = `
+      <div class="daily-result">
+        <span><b>${m.steps} steps · ${fmtTime(m.time_ms)}</b> <span class="stars">${starText(m.stars)}</span></span>
+        <span class="daily-rank">#${m.rank} <span class="muted small">of ${m.of}</span></span>
+      </div>
+      <div class="row">
+        <a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>
+        <a class="btn quiet" href="/g/${m.code}" data-link>My ladder</a>
+      </div>`;
+  } else if (m?.gave_up) {
+    body = `<p class="small muted" style="margin:0">You gave up on today's ${n}-letter ladder.</p>
+      <a class="btn quiet" href="/leaderboard" data-link>See the leaderboard</a>`;
+  } else if (m?.started) {
+    body = `<p class="small muted" style="margin:0">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"} · your clock is running</p>
+      <a class="btn" href="/g/${m.code}" data-link>Continue</a>`;
+  } else {
+    body = `<p class="small muted" style="margin:0">Same puzzle for everyone · par ${p.par} · ${p.played} played today</p>
+      <button class="btn" data-action="daily-play">Play today's ${n}-letter ladder</button>`;
+  }
+  return `
+    <div class="daily-head">
+      <span class="label">Daily ladder · ${fmtDay(d.date)}</span>
+      <span class="small muted">${d.streak ? `🔥 ${d.streak}-day streak · ` : ""}${resets}</span>
+    </div>
+    <div class="seg seg-small" role="group" aria-label="Daily ladder length">${lengths}</div>
+    ${body}`;
+}
+
+function dailyTop(g) {
+  return `
+    <div class="top">
+      <a class="icon-btn" href="/" data-link aria-label="Back">←</a>
+      <h2 style="font-size:1.2rem">Daily ladder</h2>
+      <span class="label">${g.length} letters · ${fmtDay(g.daily_date)}</span>
+    </div>`;
+}
+
+function drawDaily(g) {
+  const mine = g.race.seats[0];
+  if (!mine.started) {
+    const hidden = `<div class="tiles">${"<span class=\"t\">?</span>".repeat(g.length)}</div>`;
+    app.innerHTML = `
+      <main class="screen">
+        ${dailyTop(g)}
+        <div class="card stack" style="align-items:center;text-align:center;margin-block:auto">
+          <span class="label">Today's ${g.length}-letter ladder · par ${g.par}</span>
+          ${hidden}
+          <span class="muted">to</span>
+          ${hidden.replace(/class="t"/g, 'class="t end"')}
+          <p class="muted small" style="margin:0">Everyone gets the same puzzle today, and you get <b>one try</b>.
+            The words appear when you tap Start, and your clock starts then too.
+            Fewest steps wins; ties go to the faster time. No hints.</p>
+          <button class="btn" data-action="race-start" style="width:100%">Start</button>
+        </div>
+      </main>`;
+    return;
+  }
+  const { rungs, toGo } = ladderRungs(g);
+  app.innerHTML = `
+    <main class="game">
+      ${dailyTop(g)}
+      <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>⏱ <span id="clock">0:00</span></span><span>${toGo}</span></div>
+      <div class="ladder" id="ladder">${rungs.join("")}</div>
+      <div class="feedback ${state.feedback?.kind ?? ""}" id="feedback">${esc(state.feedback?.text ?? "")}</div>
+      <div class="tools">
+        <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
+        <button data-action="give-up" class="danger">Give up</button>
+      </div>
+      ${keyboard()}
+    </main>`;
+  drawEntry();
+  scrollToEntry();
+  startClock(mine.started_at);
+}
+
+function shareText(g) {
+  const me = g.race.seats[0];
+  const words = [g.start, ...(me.ladder ?? [])];
+  const grid = words.map((w) => [...w].map((ch, i) => (ch === g.end[i] ? "🟩" : "⬜")).join("")).join("\n");
+  const result = me.gave_up ? `Gave up after ${me.steps} steps` : `${me.steps} steps (par ${g.par}) · ${fmtTime(me.time_ms)} ${starText(me.stars)}`;
+  return `Word Ladder · Daily ${fmtDay(g.daily_date)} · ${g.length} letters\n${result}\n${grid}\n${location.origin}`;
+}
+
+async function drawDailyResult(g) {
+  const me = g.race.seats[0];
+  const won = !me.gave_up;
+  let prev = g.start;
+  const played = [tiles(g.start, { target: g.end, cls: "small" })];
+  for (const w of me.ladder ?? []) {
+    played.push(w === g.end ? tiles(w, { cls: "small end" }) : tiles(w, { prev, seat: 1, target: g.end, cls: "small" }));
+    prev = w;
+  }
+  const others = (state.daily?.puzzles ?? []).filter((p) => p.length !== g.length && p.mine?.status !== "finished");
+  app.innerHTML = `
+    <main class="screen">
+      ${dailyTop(g)}
+      <div class="result">
+        <span class="label">${won ? `${me.steps} steps · ${fmtTime(me.time_ms)} · par ${g.par}` : `Stopped after ${me.steps} steps`}</span>
+        <h1>${won ? (me.steps <= g.par ? "Perfect ladder!" : "Solved!") : "Not today"}</h1>
+        ${won ? `<div class="big-stars" aria-label="${me.stars} of 3 stars">${"★".repeat(me.stars)}<span class="off">${"★".repeat(3 - me.stars)}</span></div>` : ""}
+        <p class="daily-rank-big" id="daily-rank">&nbsp;</p>
+      </div>
+      <div class="row">
+        <button class="btn" data-action="daily-share">Share result</button>
+        <a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>
+      </div>
+      <div class="card stack">
+        <span class="label">Your ladder</span>
+        <div class="mini-ladder">${played.join("")}</div>
+      </div>
+      <details class="card">
+        <summary><b>Shortest possible ladder</b> <span class="muted">(${g.par} steps)</span></summary>
+        <div class="mini-ladder" style="margin-top:12px">
+          ${(g.solution ?? []).map((w, i, a) => tiles(w, { target: g.end, cls: i === a.length - 1 ? "small end" : "small" })).join("")}
+        </div>
+      </details>
+      ${others.length ? `<div class="row">${others.map((p) => `<button class="btn quiet" data-action="daily-play" data-value="${p.length}">Try today's ${p.length}-letter</button>`).join("")}</div>` : ""}
+      <a class="btn ghost" href="/" data-link style="margin-top:auto">Home</a>
+    </main>`;
+  try {
+    const board = await api(`/api/leaderboard/today?length=${g.length}`);
+    const ranked = board.rows.filter((r) => !r.gave_up).length;
+    const el = document.getElementById("daily-rank");
+    if (el && board.me?.rank) el.innerHTML = `<b>#${board.me.rank}</b> of ${ranked} today`;
+    else if (el) el.textContent = `${board.played} played today`;
+  } catch { /* the rank line is optional */ }
+}
+
+// ---------- leaderboard ----------
+
+async function renderLeaderboard() {
+  state.lb = state.lb ?? { tab: "today", length: dailyLength() };
+  const { tab, length } = state.lb;
+  const tabs = [["today", "Today"], ["week", "This week"], ["friends", "Friends"]].map(([v, label]) =>
+    `<button type="button" data-action="lb-tab" data-value="${v}" aria-pressed="${v === tab}">${label}</button>`).join("");
+  const lengths = [4, 5, 6].map((n) =>
+    `<button type="button" data-action="lb-length" data-value="${n}" aria-pressed="${n === length}">${n} letters</button>`).join("");
+  app.innerHTML = `
+    <main class="screen">
+      <div class="top">
+        <a class="icon-btn" href="/" data-link aria-label="Back">←</a>
+        <h2>Leaderboard</h2>
+        <span style="width:24px"></span>
+      </div>
+      <div class="seg" role="tablist" aria-label="Leaderboard">${tabs}</div>
+      ${tab === "today" ? `<div class="seg seg-small" role="group" aria-label="Word length">${lengths}</div>` : ""}
+      <div id="board"><p class="muted pulse" style="text-align:center">Loading…</p></div>
+    </main>`;
+  const el = document.getElementById("board");
+  const medal = (r) => (r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : r ?? "—");
+  const you = (r) => (r.me ? "<b>You</b>" : esc(r.name));
+  // Top 50, plus your own row underneath if you're further down.
+  const pinned = (rows, me, cols) => {
+    const top = rows.slice(0, 50);
+    const below = me && !top.some((r) => r.me);
+    return { top, extra: below ? `<tr class="gap-row"><td colspan="${cols}">⋯</td></tr>` : "", meRow: below ? me : null };
+  };
+  try {
+    if (tab === "today") {
+      const b = await api(`/api/leaderboard/today?length=${length}`);
+      const { top, extra, meRow } = pinned(b.rows, b.me, 5);
+      const row = (r) => `
+        <tr class="${r.me ? "me" : ""}">
+          <td class="rank">${r.gave_up ? "—" : medal(r.rank)}</td><td class="name">${you(r)}</td>
+          ${r.gave_up ? `<td colspan="3" class="muted">Gave up</td>`
+            : `<td class="num">${r.steps}</td><td class="num">${fmtTime(r.time_ms)}</td><td class="stars">${starText(r.stars)}</td>`}
+        </tr>`;
+      el.innerHTML = `
+        <p class="small muted board-head">${fmtDay(b.date)} · ${length} letters · par ${b.par} · ${b.played} played</p>
+        ${state.me && !b.me ? `<div class="banner"><span>You haven't played today's ${length}-letter ladder.</span><button class="btn" data-action="daily-play" data-value="${length}">Play</button></div>` : ""}
+        ${b.rows.length ? `
+        <div class="board-wrap"><table class="board">
+          <thead><tr><th>#</th><th>Player</th><th class="num">Steps</th><th class="num">Time</th><th></th></tr></thead>
+          <tbody>${top.map(row).join("")}${extra}${meRow ? row(meRow) : ""}</tbody>
+        </table></div>` : `<p class="empty card">Nobody has finished today's ${length}-letter ladder yet. Be the first!</p>`}
+        <p class="small muted">Ranked by fewest steps, then fastest time. One try per player per day.</p>`;
+    } else if (tab === "week") {
+      const b = await api("/api/leaderboard/week");
+      const { top, extra, meRow } = pinned(b.rows, b.me, 4);
+      const row = (r) => `
+        <tr class="${r.me ? "me" : ""}">
+          <td class="rank">${medal(r.rank)}</td><td class="name">${you(r)}</td>
+          <td class="num">${r.days}/${b.days_so_far}</td><td class="num"><span class="stars">★</span> ${r.stars}</td>
+        </tr>`;
+      el.innerHTML = `
+        <p class="small muted board-head">${fmtDay(b.from)} – ${fmtDay(b.to)} · daily ladders, all lengths</p>
+        ${b.rows.length ? `
+        <div class="board-wrap"><table class="board">
+          <thead><tr><th>#</th><th>Player</th><th class="num">Days</th><th class="num">Stars</th></tr></thead>
+          <tbody>${top.map(row).join("")}${extra}${meRow ? row(meRow) : ""}</tbody>
+        </table></div>` : `<p class="empty card">No daily ladders finished this week yet.</p>`}
+        <p class="small muted">Stars from every daily ladder since Monday. Ties go to the lower total time. Resets every Monday.</p>`;
+    } else {
+      if (!state.me) { el.innerHTML = `<p class="empty card">Enter your name on the home screen to see your friends.</p>`; return; }
+      const b = await api("/api/leaderboard/friends");
+      el.innerHTML = b.rows.length ? `
+        <div class="board-wrap"><table class="board">
+          <thead><tr><th>Friend</th><th class="num">Races W–L</th><th class="num">Team games</th><th class="num">Avg ★</th></tr></thead>
+          <tbody>${b.rows.map((r) => `
+            <tr><td class="name">${esc(r.name)}</td>
+              <td class="num">${r.won}–${r.lost}${r.tied ? ` (${r.tied} tie${r.tied === 1 ? "" : "s"})` : ""}</td>
+              <td class="num">${r.team_games}</td><td class="num">${r.avg_stars ?? "—"}</td></tr>`).join("")}
+          </tbody>
+        </table></div>
+        <p class="small muted">Your record against each friend in races, and how your team games went.</p>`
+        : `<p class="empty card">Play a Team game or a Race with a friend and they'll show up here.</p>`;
+    }
+  } catch (e) {
+    el.innerHTML = `<p class="empty card">${esc(e.message)}</p>`;
+  }
+}
+
 // ---------- how to play ----------
 
 function pushCheckText() {
@@ -848,6 +1089,7 @@ function renderHelp() {
         <div class="modes-help">
           <div><b>Solo</b><span>Just you and the puzzle.</span></div>
           <div><b>Team</b><span>You and a friend take turns adding one word each to the same ladder, and win together. You get a notification when it's your turn.</span></div>
+          <div><b>Daily ladder</b><span>One puzzle a day for each word length, the same for everyone. You get one try, the words appear when you tap Start, and you're ranked on the leaderboard by fewest steps, then time. Play every day to keep your streak.</span></div>
           <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. No hints.</span></div>
         </div>
       </section>
@@ -1016,6 +1258,31 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
+  "daily-length"(el) {
+    try { localStorage.setItem("wl-daily-length", el.dataset.value); } catch { /* remembered for this visit only */ }
+    document.getElementById("daily-card").innerHTML = dailyCard();
+  },
+  async "daily-play"(el) {
+    el.disabled = true;
+    const n = Number(el.dataset.value) || dailyLength();
+    try {
+      const g = await api(`/api/daily/${n}`, { method: "POST" });
+      try { localStorage.setItem("wl-daily-length", String(n)); } catch { /* fine */ }
+      go(`/g/${g.code}`);
+    } catch (e) {
+      toast(e.message);
+      el.disabled = false;
+    }
+  },
+  async "daily-share"() {
+    const text = shareText(state.game);
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; } catch { /* closed the share sheet */ return; }
+    }
+    try { await navigator.clipboard.writeText(text); toast("Result copied. Paste it in any chat."); } catch { toast("Couldn't copy the result."); }
+  },
+  "lb-tab"(el) { state.lb.tab = el.dataset.value; renderLeaderboard(); },
+  "lb-length"(el) { state.lb.length = Number(el.dataset.value); renderLeaderboard(); },
   async "race-start"(el) {
     el.disabled = true;
     try {

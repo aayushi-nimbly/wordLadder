@@ -220,6 +220,26 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .race-ladders { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .race-ladders .tiles.small .t { --tile-size: 24px; font-size: .8rem; }
 
+/* daily ladder */
+.daily { display: flex; flex-direction: column; gap: 12px; border-color: var(--p1); box-shadow: inset 4px 0 0 var(--p1); }
+.daily-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.seg-small button { min-height: 36px; font-size: .9rem; }
+.daily-result { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.daily-rank { font: 800 1.6rem var(--display); }
+.daily-rank-big { margin: 4px 0 0; font-size: 1.1rem; min-height: 1.5em; }
+
+/* leaderboard */
+.board-head { margin: 0; }
+.board-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.board { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.board th { font: 500 .68rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 12px; }
+.board td { padding: 11px 12px; border-top: 1px solid var(--line); white-space: nowrap; }
+.board .num { text-align: right; }
+.board .rank { width: 2.2em; font-weight: 700; }
+.board .name { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.board tr.me td { background: var(--p1-soft); }
+.board .gap-row td { text-align: center; color: var(--muted); padding: 4px; }
+
 /* how to play */
 .help h3 { font-size: 1.15rem; }
 .help-example { display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; }

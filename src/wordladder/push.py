@@ -93,7 +93,7 @@ def notes_for(game: Game, actor_id: int, event: str, online: set[int], new_game:
 
     Players who have this game open right now see it live, so they're skipped.
     """
-    if game.mode == "solo":
+    if game.mode in ("solo", "daily"):
         return []
     if game.mode == "race":
         return _race_notes(game, actor_id, event, online, new_game)
