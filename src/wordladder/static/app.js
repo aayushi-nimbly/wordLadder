@@ -144,6 +144,7 @@ window.addEventListener("popstate", route);
 async function route() {
   closeSocket();
   stopClock();
+  if (location.pathname !== "/tutorial") state.tutorial = null;
   const path = location.pathname;
   const gameMatch = path.match(/^\/(g|j)\/([A-Za-z0-9]+)/);
 
@@ -151,6 +152,7 @@ async function route() {
     if (!state.me) state.me = await api("/api/me").catch(() => null);
     return renderLeaderboard();
   }
+  if (path === "/tutorial") return renderTutorial();
   if (path === "/help") {  // readable before entering a name
     if (!state.me) state.me = await api("/api/me").catch(() => null);
     return renderHelp();
@@ -251,14 +253,13 @@ async function renderHome() {
       <div class="top">
         <span class="logo">Word Ladder</span>
         <span class="top-actions">
-          <a class="help-btn" href="/leaderboard" data-link aria-label="Leaderboard">🏆</a>
-          <a class="help-btn" href="/help" data-link aria-label="How to play">?</a>
-          <button class="linkish" data-action="rename">Hi, ${esc(state.me.name)}</button>
+          <a class="how-link" href="/help" data-link>How to play</a>
+          <button class="avatar" data-action="rename" aria-label="Change your name (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</button>
         </span>
       </div>
-      ${games.active.length || games.finished.length || state.daily?.mine ? "" : `
-        <a class="banner" href="/help" data-link style="text-decoration:none">
-          <span><b>New to word ladders?</b><br><span class="small">See how to play in 30 seconds.</span></span><b aria-hidden="true">→</b>
+      ${tutorialSeen() || games.active.length || games.finished.length || state.daily?.mine ? "" : `
+        <a class="banner" href="/tutorial" data-link style="text-decoration:none">
+          <span><b>New to word ladders?</b><br><span class="small">Learn by playing a tiny one. 20 seconds.</span></span><b aria-hidden="true">→</b>
         </a>`}
       <section class="daily card" id="daily-card">${dailyCard()}</section>
       <div class="stack">
@@ -544,7 +545,7 @@ function drawJoin(g) {
         ${tiles(g.end, { cls: "end" })}
       </div>
       <button class="btn${MODES[g.mode].cls}" data-action="join">${g.mode === "race" ? "Accept the race" : `Join ${esc(host)}'s game`}</button>
-      <a class="linkish" href="/help" data-link style="align-self:center">How to play</a>
+      <a class="linkish" href="/tutorial?then=${encodeURIComponent(`/g/${g.code}`)}" data-link style="align-self:center">New to word ladders? 20-second tutorial</a>
     </main>`;
 }
 
@@ -616,11 +617,18 @@ function drawPlay(g) {
       </div>
       <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>${toGo}</span></div>
       <div class="ladder" id="ladder">${rungs.join("")}</div>
-      <div class="feedback ${state.feedback?.kind ?? ""}" id="feedback">${esc(state.feedback?.text ?? "")}</div>
+      ${feedbackLine(g)}
       ${bottom}
     </main>`;
   drawEntry();
   scrollToEntry();
+}
+
+// The message line under the ladder. Before the first word it explains what to do.
+function feedbackLine(g) {
+  const f = state.feedback ?? (g.my_turn && !g.ladder.length
+    ? { text: `Change one letter of ${g.current.toUpperCase()} to make a new word`, kind: "tip" } : null);
+  return `<div class="feedback ${f?.kind ?? ""}" id="feedback">${esc(f?.text ?? "")}</div>`;
 }
 
 function ladderRungs(g) {
@@ -731,7 +739,7 @@ function drawRace(g) {
       ${top}
       <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>⏱ <span id="clock">0:00</span></span><span>${toGo}</span></div>
       <div class="ladder" id="ladder">${rungs.join("")}</div>
-      <div class="feedback ${state.feedback?.kind ?? ""}" id="feedback">${esc(state.feedback?.text ?? "")}</div>
+      ${feedbackLine(g)}
       <div class="tools">
         <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
         <button data-action="give-up" class="danger">Give up</button>
@@ -803,20 +811,17 @@ function dailyCard() {
   const done = m?.status === "finished";
   const hours = Math.floor(d.resets_in / 3600);
   const next = hours ? `Next in ${hours}h` : `Next in ${Math.max(1, Math.round(d.resets_in / 60))}m`;
-  const side = [d.streak ? `🔥 ${d.streak}` : "", done ? next : ""].filter(Boolean).join(" · ");
+  const streak = d.streak ? ` · 🔥 ${d.streak}` : "";
   let body;
   if (done && !m.gave_up) {
     body = `
-      <div class="daily-result">
-        <span><b>${m.steps} steps · ${fmtTime(m.time_ms)}</b> <span class="stars">${starText(m.stars)}</span></span>
+      <a class="daily-result" href="/g/${m.code}" data-link>
+        <span><b>${m.steps} steps · ${fmtTime(m.time_ms)}</b> <span class="stars">${starText(m.stars)}</span>
+          <span class="small muted" style="display:block">${next}</span></span>
         <span class="daily-rank">#${m.rank}</span>
-      </div>
-      <div class="row">
-        <a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>
-        <a class="btn quiet" href="/g/${m.code}" data-link>My ladder</a>
-      </div>`;
+      </a>`;
   } else if (m?.gave_up) {
-    body = `<a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>`;
+    body = `<p class="small muted" style="margin:0">You gave up today. ${next}.</p>`;
   } else if (m?.started) {
     body = `<a class="btn" href="/g/${m.code}" data-link>Continue · ${m.steps} step${m.steps === 1 ? "" : "s"} so far</a>`;
   } else {
@@ -824,8 +829,8 @@ function dailyCard() {
   }
   return `
     <div class="daily-head">
-      <span class="label">Daily ladder${m?.gave_up ? " · gave up" : ""}</span>
-      ${side ? `<span class="small muted">${side}</span>` : ""}
+      <span class="label">Daily ladder${streak}</span>
+      <a class="small" href="/leaderboard" data-link>🏆 Leaderboard</a>
     </div>
     ${body}`;
 }
@@ -865,7 +870,7 @@ function drawDaily(g) {
       ${dailyTop(g)}
       <div class="progress"><span>Step ${g.steps_used}</span><span>Par ${g.par}</span><span>⏱ <span id="clock">0:00</span></span><span>${toGo}</span></div>
       <div class="ladder" id="ladder">${rungs.join("")}</div>
-      <div class="feedback ${state.feedback?.kind ?? ""}" id="feedback">${esc(state.feedback?.text ?? "")}</div>
+      ${feedbackLine(g)}
       <div class="tools">
         <button data-action="undo" ${g.ladder.length ? "" : "disabled"}>↶ Undo</button>
         <button data-action="give-up" class="danger">Give up</button>
@@ -1009,6 +1014,115 @@ async function renderLeaderboard() {
   }
 }
 
+// ---------- tutorial ----------
+// A tiny ladder (COLD → WORD, par 2) with tips that appear as you play. Runs in the browser only;
+// moves are checked against the dictionary through /api/puzzles/check.
+
+const TUTORIAL = { start: "cold", end: "word", par: 2 };
+
+function tutorialSeen() {
+  try { return localStorage.getItem("wl-tutorial") === "done"; } catch { return false; }
+}
+
+function finishTutorial() {
+  try { localStorage.setItem("wl-tutorial", "done"); } catch { /* shows again next time; harmless */ }
+  const then = new URLSearchParams(location.search).get("then");
+  state.tutorial = null;
+  state.game = null;
+  go(then && then.startsWith("/") ? then : "/", { replace: true });
+}
+
+function renderTutorial() {
+  state.tutorial = { words: [TUTORIAL.start], misses: 0, dist: TUTORIAL.par };
+  state.entry = "";
+  state.hintPos = null;
+  state.feedback = null;
+  drawTutorial();
+}
+
+function tutorialGame() {
+  const t = state.tutorial;
+  const words = t.words;
+  const current = words[words.length - 1];
+  return {
+    length: 4, my_turn: current !== TUTORIAL.end, my_seat: 1, current, start: TUTORIAL.start, end: TUTORIAL.end,
+    ladder: words.slice(1).map((w) => ({ word: w, seat: 1 })), distance: t.dist,
+  };
+}
+
+function drawTutorial() {
+  const t = state.tutorial;
+  const g = (state.game = tutorialGame());
+  const steps = t.words.length - 1;
+  let tip;
+  if (g.current === TUTORIAL.end) {
+    tip = `<b>You did it in ${steps} steps! ${steps <= TUTORIAL.par ? "★★★" : "★★"}</b><br>
+      <b>Par</b> is the fewest steps possible. Finish in par for three stars.
+      That's all there is to it. Now try a real one, on your own, with a friend, or the daily ladder.`;
+  } else if (steps === 0) {
+    tip = `<b>Turn COLD into WORD.</b> Change <b>one letter</b> at a time, and every step must be a real word.<br>
+      Try it: change the <b>L</b> to an <b>R</b> and press Enter.`;
+  } else {
+    tip = `<b>Nice!</b> The <b class="tip-hit">green</b> tiles are letters already in the right place for WORD.
+      The outlined tile is the one you changed.<br>${t.dist === 1
+        ? "One more change to reach <b>WORD</b>."
+        : `Keep going: WORD is ${t.dist} changes away.`}`;
+  }
+  const done = g.current === TUTORIAL.end;
+  const { rungs } = ladderRungs({ ...g, ladder: g.ladder, my_turn: !done });
+  app.innerHTML = `
+    <main class="game">
+      <div class="top">
+        <h2>Quick tutorial</h2>
+        ${done ? "" : `<button class="linkish" data-action="tutorial-skip">Skip</button>`}
+      </div>
+      <div class="coach" role="status">${tip}</div>
+      <div class="ladder" id="ladder">${rungs.join("")}</div>
+      ${feedbackLine(g)}
+      ${done ? `<button class="btn" data-action="tutorial-skip">Start playing</button>` : keyboard()}
+    </main>`;
+  drawEntry();
+  scrollToEntry();
+}
+
+async function tutorialSubmit() {
+  const t = state.tutorial;
+  const here = t.words[t.words.length - 1];
+  const word = state.entry;
+  const miss = (text) => {
+    t.misses += 1;
+    // After two misses on the main path, point at the letter to change.
+    const step = { cold: "cord", cord: "word" }[here];
+    if (t.misses >= 2 && step) state.hintPos = [...here].findIndex((ch, i) => ch !== step[i]);
+    setFeedback(t.misses >= 2 && step ? `${text} Try ${step.toUpperCase()}.` : text, "bad");
+    shake();
+    drawEntry();
+  };
+  if (word.length !== 4) return miss("Type a 4-letter word.");
+  const changed = [...word].filter((ch, i) => ch !== here[i]).length;
+  if (changed !== 1) return miss(changed ? `Change only one letter. That changed ${changed}.` : "Change one letter.");
+  if (t.words.includes(word)) return miss(`${word.toUpperCase()} is already on the ladder.`);
+  let dist = 0;
+  if (word !== TUTORIAL.end) {
+    try {  // checks it's a real word, and how far it is from WORD
+      dist = (await api("/api/puzzles/check", { method: "POST", body: { length: 4, start: word, end: TUTORIAL.end } })).par;
+    } catch (e) {
+      return miss(e.message.includes("dictionary") ? `${word.toUpperCase()} isn't a word we know.`
+        : `${word.toUpperCase()} is a dead end: there's no way from it to WORD.`);
+    }
+  }
+  t.dist = dist;
+  t.words.push(word);
+  t.misses = 0;
+  state.entry = "";
+  state.hintPos = null;
+  const closer = dist < (t.prevDist ?? TUTORIAL.par);
+  t.prevDist = dist;
+  state.feedback = word === TUTORIAL.end ? null
+    : { text: closer ? "One step closer!" : "That works, but it's not closer to WORD.", kind: closer ? "ok" : "meh" };
+  drawTutorial();
+}
+
 // ---------- how to play ----------
 
 function pushCheckText() {
@@ -1037,6 +1151,7 @@ function renderHelp() {
         <h2>How to play</h2>
         <span style="width:24px"></span>
       </div>
+      <a class="btn" href="/tutorial" data-link>Play the 20-second tutorial</a>
       <section class="help-example card">
         <div class="mini-ladder">${example}</div>
         <p class="small muted" style="margin:0">COLD becomes WARM in 4 steps, changing one letter each time.</p>
@@ -1082,7 +1197,7 @@ function renderHelp() {
         ${canTest && state.me ? `<button class="btn quiet" data-action="push-test">Send me a test notification</button>` : ""}
         <p class="small muted" style="margin:0" id="push-result"></p>
       </section>
-      <a class="btn" href="/" data-link>Let's play</a>
+      <a class="btn ghost" href="/" data-link>Back to the game</a>
     </main>`;
 }
 
@@ -1133,6 +1248,11 @@ let submitting = false;
 async function submitWord() {
   const g = state.game;
   if (submitting) return;
+  if (state.tutorial) {
+    submitting = true;
+    try { await tutorialSubmit(); } finally { submitting = false; }
+    return;
+  }
   if (state.entry.length !== g.length) {
     setFeedback(`Type a ${g.length}-letter word.`, "bad");
     return shake();
@@ -1241,6 +1361,7 @@ const actions = {
     }
   },
   "copy-invite"() { copy(inviteUrl(state.game.code)); },
+  "tutorial-skip"() { finishTutorial(); },
   async "daily-play"(el) {
     el.disabled = true;
     try {
@@ -1376,9 +1497,12 @@ app.addEventListener("submit", async (ev) => {
     const name = new FormData(ev.target).get("name").trim();
     if (!name) return;
     askForPushOnce();
+    const isNew = !state.me;
     try {
       state.me = await api("/api/players", { method: "POST", body: { name } });
       syncPush().catch(() => {});
+      // First visit (not from an invite): teach the game by playing a tiny one.
+      if (isNew && location.pathname === "/" && !tutorialSeen()) return go("/tutorial", { replace: true });
       route();
     } catch (e) {
       toast(e.message);

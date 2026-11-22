@@ -421,6 +421,7 @@ def service_worker():
 @app.get("/new")
 @app.get("/help")
 @app.get("/leaderboard")
+@app.get("/tutorial")
 @app.get("/g/{code}")
 @app.get("/j/{code}")
 def index(code: str | None = None):
