@@ -107,7 +107,9 @@ class PushSubscription(Base):
 
 engine = create_engine(
     DB_URL,
-    connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {},
+    # SQLite: allow use across threads. Postgres: no auto-prepared statements, which connection
+    # poolers (like Neon's) can't always keep track of.
+    connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {"prepare_threshold": None},
     pool_pre_ping=True,  # hosted Postgres drops idle connections
 )
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
