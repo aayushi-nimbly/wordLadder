@@ -52,10 +52,19 @@ function ago(iso) {
 }
 
 const MODES = {
-  solo: { title: "Solo game", button: "Start game", cls: " solo" },
-  team: { title: "Team up with a friend", button: "Create invite", cls: " blue" },
-  race: { title: "Compete with a friend", button: "Create challenge", cls: " race" },
+  solo: { title: "Solo game", button: "Start game", cls: " solo", block: "solo", letter: "S",
+    label: "Solo", blurb: "Your own pace. No clock, no pressure." },
+  team: { title: "Team up with a friend", button: "Create invite", cls: " blue", block: "team", letter: "T",
+    label: "Team", blurb: "Take turns adding words and win together." },
+  race: { title: "Challenge a friend", button: "Create challenge", cls: " race", block: "compete", letter: "C",
+    label: "Compete", blurb: "Same puzzle on both phones. Fewest steps wins." },
 };
+
+// The mode's colour block at the top of a screen.
+function hero(mode, inner) {
+  const m = MODES[mode];
+  return `<section class="hero ${m.block}" data-l="${m.letter}">${inner}</section>`;
+}
 const starText = (n) => "★".repeat(n || 0) + "☆".repeat(3 - (n || 0));
 const inviteUrl = (code) => `${location.origin}/j/${code}`;
 
@@ -195,7 +204,7 @@ function renderName({ invite = null, rename = false } = {}) {
       : `<p><b>${esc(invite.host)}</b> invited you to climb a ${invite.length}-letter word ladder together.</p>`
     : invite
       ? `<p class="muted">That game already has two players.</p>`
-      : `<p class="muted">Change one letter at a time to turn one word into another. Play solo or team up with a friend.</p>`;
+      : `<p class="muted">Change one letter at a time.</p>`;
   app.innerHTML = `
     <main class="screen center">
       <h1 class="logo-big">${brand(true)}</h1>
@@ -206,7 +215,7 @@ function renderName({ invite = null, rename = false } = {}) {
           <input class="input" id="name" name="name" maxlength="24" autocomplete="nickname" required
             value="${esc(rename ? state.me?.name : "")}" placeholder="What your friend will see">
         </div>
-        <button class="btn" type="submit">${rename ? "Save" : invite?.open ? "Join the game" : "Start playing"}</button>
+        <button class="btn daily" type="submit">${rename ? "Save" : invite?.open ? "Join the game" : "Start playing"}</button>
         ${rename ? `<a class="btn ghost" href="/" data-link>Cancel</a>` : ""}
       </form>
       ${rename ? "" : `<p class="muted small">No signup. Your games are saved in this browser. <a href="/help" data-link>How to play</a></p>`}
@@ -224,23 +233,20 @@ async function renderHome() {
   } catch (e) {
     toast(e.message);
   }
+  // One calm row per game; the only colour is the pill on games that need you.
   const row = (g) => {
     const who = g.mode === "solo" ? "Solo" : g.partner ? esc(g.partner) : "Invite sent";
-    const kind = { solo: "", team: "Team · ", race: "Compete · " }[g.mode];
-    let right;
+    const letter = { solo: "S", team: "T", race: "C" }[g.mode];
+    let right = "";
     if (g.mode === "race" && g.status === "finished") {
-      right = { won: `<span class="pill turn">Won</span>`, lost: `<span class="pill wait">Lost</span>`,
-        tie: `<span class="pill wait">Tie</span>` }[g.outcome] ?? `<span class="pill wait">No winner</span>`;
-    } else if (g.mode === "race" && g.status === "active") {
-      right = g.my_turn ? `<span class="pill turn">Your go</span>` : `<span class="pill wait">Waiting for ${esc(g.partner)}</span>`;
-    } else if (g.status === "won") right = `<span class="stars" aria-label="${g.stars} stars">${starText(g.stars)}</span>`;
-    else if (g.status === "gave_up") right = `<span class="pill wait">Gave up</span>`;
-    else if (g.status === "waiting") right = `<span class="pill wait">Waiting for friend</span>`;
-    else if (g.my_turn) right = `<span class="pill turn">Your turn</span>`;
-    else right = `<span class="pill wait">Their turn · ${ago(g.updated_at)}</span>`;
+      right = `<span class="st res">${{ won: "Won", lost: "Lost", tie: "Tie" }[g.outcome] ?? "No winner"}</span>`;
+    } else if (g.status === "won") right = `<span class="st res stars" aria-label="${g.stars} stars">${starText(g.stars)}</span>`;
+    else if (g.status === "gave_up") right = `<span class="st res">Gave up</span>`;
+    else if (g.my_turn) right = `<span class="st go">${g.mode === "solo" ? "Continue" : g.mode === "race" ? "Your go" : "Your turn"}</span>`;
     return `
-      <a href="/g/${g.code}" data-link>
-        <span class="item-main"><b>${who}</b><span class="item-words">${kind}${up(g.start)} → ${up(g.end)}</span></span>
+      <a class="gm" href="/g/${g.code}" data-link>
+        <span class="mb" aria-hidden="true">${letter}</span>
+        <span class="nm">${who} <small>· ${up(g.start)} → ${up(g.end)}</small></span>
         ${right}
       </a>`;
   };
@@ -253,33 +259,23 @@ async function renderHome() {
       <div class="top">
         ${brand()}
         <span class="top-actions">
-          <a class="how-link" href="/help" data-link>How to play</a>
           <a class="trophy" href="/leaderboard" data-link aria-label="Leaderboard" title="Leaderboard">🏆</a>
           <button class="avatar" data-action="rename" aria-label="Change your name (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</button>
         </span>
       </div>
-      ${tutorialSeen() || games.active.length || games.finished.length || state.daily?.mine ? "" : `
-        <a class="banner" href="/tutorial" data-link style="text-decoration:none">
-          <span><b>New to word ladders?</b><br><span class="small">Learn by playing a tiny one. 20 seconds.</span></span><b aria-hidden="true">→</b>
-        </a>`}
       <section class="modes-grid" aria-label="Ways to play">
         ${dailyCard()}
-        <a class="mode-card solo" href="/new?mode=solo" data-link>
-          ${modeMark("ONE")}<b class="mode-title">Solo</b>
-          <span class="mode-sub">Your own pace, no clock</span>
-          <span class="mode-foot">Start →</span>
+        <a class="blk solo" data-l="S" href="/new?mode=solo" data-link>
+          <span class="lab"></span><b>Solo</b><span>Your own pace, no clock</span><span class="go">Start →</span>
         </a>
-        <a class="mode-card team" href="/new?mode=team" data-link>
-          ${modeMark("DUO")}<b class="mode-title">Team</b>
-          <span class="mode-sub">Take turns with a friend, win together</span>
-          <span class="mode-foot">Invite →</span>
+        <a class="blk team" data-l="T" href="/new?mode=team" data-link>
+          <span class="lab"></span><b>Team</b><span>Take turns, win together</span><span class="go">Invite →</span>
         </a>
-        <a class="mode-card race" href="/new?mode=race" data-link>
-          ${modeMark("WIN")}<b class="mode-title">Compete</b>
-          <span class="mode-sub">Same puzzle, fewest steps wins</span>
-          <span class="mode-foot">Challenge →</span>
+        <a class="blk compete" data-l="C" href="/new?mode=race" data-link>
+          <span class="lab"></span><b>Compete</b><span>Same puzzle, fewest steps</span><span class="go">Challenge →</span>
         </a>
       </section>
+      <a class="howrow" href="${tutorialSeen() ? "/help" : "/tutorial"}" data-link><span>New here? <b>How to play</b></span><span aria-hidden="true">→</span></a>
       <form class="row" data-form="join-code">
         <input class="input code-input" id="join-code" name="code" aria-label="Game code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" style="flex:2">
         <button class="btn ghost" type="submit">Join</button>
@@ -287,13 +283,15 @@ async function renderHome() {
       ${install}
       ${installHint()}
       <section class="stack">
-        <span class="label">Your games</span>
-        <div class="list">${games.active.length ? games.active.map(row).join("") : `<div class="empty">No games in progress. Start one above.</div>`}</div>
+        <div class="row" style="align-items:baseline"><span class="label">Your games</span>
+          ${games.active.length ? `<span class="small muted" style="text-align:right">${games.active.length} active</span>` : ""}</div>
+        ${games.active.length ? `<div class="games">${games.active.map(row).join("")}</div>`
+          : `<p class="small muted" style="margin:0">No games in progress. Pick a way to play above.</p>`}
       </section>
       ${games.finished.length ? `
       <section class="stack">
         <span class="label">Finished</span>
-        <div class="list">${games.finished.map(row).join("")}</div>
+        <div class="games">${games.finished.map(row).join("")}</div>
       </section>` : ""}
     </main>`;
 }
@@ -347,11 +345,8 @@ function drawSetup() {
 
   app.innerHTML = `
     <main class="screen">
-      <div class="top">
-        <a class="icon-btn" href="/" data-link aria-label="Back">←</a>
-        <h2>${MODES[s.mode].title}</h2>
-        <span style="width:24px"></span>
-      </div>
+      <div class="top"><a class="icon-btn" href="/" data-link aria-label="Back">←</a></div>
+      ${hero(s.mode, `<span class="lab">${MODES[s.mode].label}</span><h2>${MODES[s.mode].title}</h2><p>${MODES[s.mode].blurb}</p>`)}
       <div class="field"><span class="label">Letters</span>${seg("length", [4, 5, 6], s.length)}</div>
       <div class="field"><span class="label">Words</span>${seg("source", ["suggest", "own"], s.source, ["Suggest words", "My own words"])}</div>
       <form class="stack" data-form="setup">
@@ -546,19 +541,20 @@ function drawGame() {
 
 function drawJoin(g) {
   const host = g.players[0]?.name ?? "A friend";
+  const race = g.mode === "race";
   app.innerHTML = `
     <main class="screen center">
-      <span class="label">Invitation · ${g.length} letters</span>
-      <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} ${g.mode === "race" ? "challenged you" : "invited you"}</h1>
-      <p class="muted">${g.mode === "race"
-        ? "You both solve the same puzzle, each on your own ladder. Fewest steps wins; if it's a tie, the faster time wins."
-        : "Take turns adding one word each. Get from the start word to the end word together."}</p>
-      <div class="stack" style="align-items:center">
-        ${tiles(g.start, { target: g.end })}
-        <span class="muted">to</span>
-        ${tiles(g.end, { cls: "end" })}
+      ${hero(g.mode, `
+        <span class="lab">${MODES[g.mode].label} · ${g.length} letters</span>
+        <h1 style="font-size:1.9rem">${esc(host)} ${race ? "challenged you" : "invited you"}</h1>
+        <p>${race ? "You both solve the same puzzle on your own ladder. Fewest steps wins; a tie goes to the faster time."
+          : "Take turns adding one word each, and reach the end word together."}</p>`)}
+      <div class="card stack" style="align-items:center">
+        ${tiles(g.start, { target: g.end, cls: "small" })}
+        <span class="muted small">to</span>
+        ${tiles(g.end, { cls: "small end" })}
       </div>
-      <button class="btn${MODES[g.mode].cls}" data-action="join">${g.mode === "race" ? "Accept the challenge" : `Join ${esc(host)}'s game`}</button>
+      <button class="btn${MODES[g.mode].cls}" data-action="join">${race ? "Accept the challenge" : `Join ${esc(host)}'s game`}</button>
       <a class="linkish" href="/tutorial?then=${encodeURIComponent(`/g/${g.code}`)}" data-link style="align-self:center">New to word ladders? 20-second tutorial</a>
     </main>`;
 }
@@ -569,17 +565,16 @@ function drawInvite(g) {
     <main class="screen">
       <div class="top">
         <a class="icon-btn" href="/" data-link aria-label="Back">←</a>
-        <h2>Invite a friend</h2>
-        <span class="label">${g.length} · ${esc(g.difficulty ?? "custom")}</span>
+        <span class="label">${g.length} letters · ${esc(g.difficulty ?? "your words")}</span>
       </div>
-      <div class="stack" style="align-items:center;text-align:center">
-        <span class="label">Game code</span>
-        <div class="tiles code-tiles">${[...g.code].map((c) => `<span class="t">${esc(c)}</span>`).join("")}</div>
-      </div>
+      ${hero(g.mode, `
+        <div class="stack" style="align-items:center;text-align:center;gap:10px;padding-block:6px">
+          <span class="lab">Game code</span>
+          <div class="tiles code-tiles">${[...g.code].map((c) => `<span class="t">${esc(c)}</span>`).join("")}</div>
+          <p style="max-width:none">Send this to a friend. They tap it, type a name and join. No signup.</p>
+        </div>`)}
       <div class="link-box"><code>${esc(url)}</code><button class="btn quiet" data-action="copy-invite" style="min-height:36px">Copy</button></div>
-      ${navigator.share ? `<button class="btn blue" data-action="share-invite">Share link</button>` : ""}
-      <p class="muted small" style="text-align:center;margin:0">Send the link in any chat. Your friend taps it, types a name and joins. No signup.${
-        g.mode === "race" ? " You'll both get this same puzzle." : ""}</p>
+      ${navigator.share ? `<button class="btn${MODES[g.mode].cls}" data-action="share-invite">Share link</button>` : ""}
       <div class="card stack" style="align-items:center">
         <span class="label">${g.mode === "race" ? "The puzzle" : "Your ladder"}</span>
         ${tiles(g.start, { target: g.end, cls: "small" })}
@@ -587,8 +582,7 @@ function drawInvite(g) {
         ${tiles(g.end, { cls: "small end" })}
       </div>
       ${installHint()}
-      <p class="muted pulse" style="text-align:center;margin-top:auto">● Waiting for your friend to join…</p>
-      <button class="linkish" data-action="give-up" style="align-self:center">Cancel this game</button>
+      <button class="linkish" data-action="give-up" style="align-self:center;margin-top:auto">Cancel this game</button>
     </main>`;
 }
 
@@ -794,19 +788,18 @@ function drawRaceResult(g) {
     <main class="screen">
       ${state.again ? `
         <div class="banner"><span><b>${esc(state.again.by)}</b> challenged you to a rematch.</span>
-          <a class="btn race" href="/g/${esc(state.again.code)}" data-link>Open</a></div>` : ""}
-      <div class="result">
-        <span class="label">Compete · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
-        <h1>${title}</h1>
-      </div>
-      <div class="contrib">
-        ${ordered.map((x) => `
-          <div class="s${x.seat}${x.seat === g.race.winner_seat ? " winner" : ""}">
-            <span class="label">${nameOf(x)}${x.seat === g.race.winner_seat ? " · winner" : ""}</span>
-            <b>${x.gave_up ? "Gave up" : `${x.steps} steps`}</b>
-            <span class="small">${x.gave_up ? `after ${x.steps} steps` : `${fmtTime(x.time_ms)} · ${starText(x.stars)}`}</span>
-          </div>`).join("")}
-      </div>
+          <a class="btn race" href="/g/${esc(state.again.code)}" data-link style="flex:0 0 auto">Open</a></div>` : ""}
+      ${hero("race", `
+        <span class="lab">Compete · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
+        <h1 style="font-size:1.8rem">${title}</h1>
+        <div class="stats">
+          ${ordered.map((x) => `
+            <div class="${x.seat === g.race.winner_seat ? "winner" : ""}">
+              <span class="small">${nameOf(x)}${x.seat === g.race.winner_seat ? " · winner" : ""}</span>
+              <b>${x.gave_up ? "Gave up" : `${x.steps} steps`}</b>
+              <span class="small">${x.gave_up ? `after ${x.steps} steps` : `${fmtTime(x.time_ms)} · ${starText(x.stars)}`}</span>
+            </div>`).join("")}
+        </div>`)}
       <div class="race-ladders">
         ${ordered.map((x) => `
           <div class="card stack"><span class="label">${nameOf(x)}</span><div class="mini-ladder">${ladderOf(x)}</div></div>`).join("")}
@@ -828,53 +821,41 @@ function drawRaceResult(g) {
 
 const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
-function modeMark(word) {
-  return `<span class="mode-mark" aria-hidden="true">${[...word].map((ch) => `<i>${ch}</i>`).join("")}</span>`;
-}
-
 function brand(big = false) {
   return `<span class="brand${big ? " big" : ""}" aria-label="Word Ladder">
     <span class="brand-tiles" aria-hidden="true"><i>W</i><i class="hit">O</i><i>R</i><i>D</i></span>
     <span class="brand-word" aria-hidden="true">Ladder</span></span>`;
 }
 
-// The Daily card in the home grid; what it says depends on whether you've played today.
+// The Daily block in the home grid; what it says depends on whether you've played today.
 function dailyCard() {
   const d = state.daily;
   const nextIn = (sec) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h` : `${Math.max(1, Math.round(sec / 60))}m`);
-  if (!d) return `<div class="mode-card daily"><b class="mode-title">Daily</b><span class="mode-sub">Unavailable right now</span></div>`;
+  if (!d) return `<div class="blk daily" data-l="D"><span class="lab"></span><b>Daily</b><span>Unavailable right now</span></div>`;
   const m = d.mine;
-  const streak = d.streak > 1 ? ` · ${d.streak}-day streak` : "";
   if (m?.status === "finished" && !m.gave_up) {
     return `
-      <a class="mode-card daily done" href="/g/${m.code}" data-link>
-        ${modeMark("DAY")}
-        <b class="mode-title">Daily <span class="mode-rank">#${m.rank}</span></b>
-        <span class="mode-sub">${m.steps} steps · ${fmtTime(m.time_ms)} <span class="stars">${starText(m.stars)}</span></span>
-        <span class="mode-foot">Next in ${nextIn(d.resets_in)}${streak}</span>
+      <a class="blk daily" data-l="D" href="/g/${m.code}" data-link>
+        <span class="lab">Done · next in ${nextIn(d.resets_in)}</span><b>Daily #${m.rank}</b>
+        <span>${m.steps} steps · ${fmtTime(m.time_ms)} · ${starText(m.stars)}</span><span class="go">See result →</span>
       </a>`;
   }
   if (m?.gave_up) {
     return `
-      <a class="mode-card daily" href="/leaderboard" data-link>
-        ${modeMark("DAY")}<b class="mode-title">Daily</b>
-        <span class="mode-sub">You gave up today</span>
-        <span class="mode-foot">Next in ${nextIn(d.resets_in)}</span>
+      <a class="blk daily" data-l="D" href="/leaderboard" data-link>
+        <span class="lab">Next in ${nextIn(d.resets_in)}</span><b>Daily</b><span>You gave up today</span><span class="go">Leaderboard →</span>
       </a>`;
   }
   if (m?.started) {
     return `
-      <a class="mode-card daily" href="/g/${m.code}" data-link>
-        ${modeMark("DAY")}<b class="mode-title">Daily</b>
-        <span class="mode-sub">In progress · ${m.steps} step${m.steps === 1 ? "" : "s"}</span>
-        <span class="mode-foot">Continue →</span>
+      <a class="blk daily" data-l="D" href="/g/${m.code}" data-link>
+        <span class="lab">${d.length} letters</span><b>Daily</b><span>In progress · ${m.steps} step${m.steps === 1 ? "" : "s"}</span><span class="go">Continue →</span>
       </a>`;
   }
   return `
-    <button class="mode-card daily" data-action="daily-play">
-      ${modeMark("DAY")}<b class="mode-title">Daily</b>
-      <span class="mode-sub">Today's puzzle for everyone · ${d.length} letters</span>
-      <span class="mode-foot">Play →${streak}</span>
+    <button class="blk daily" data-l="D" data-action="daily-play">
+      <span class="lab">${d.length} letters${d.streak > 1 ? ` · ${d.streak}-day streak` : ""}</span><b>Daily</b>
+      <span>Today's puzzle for everyone</span><span class="go">Play →</span>
     </button>`;
 }
 
@@ -902,7 +883,7 @@ function drawDaily(g) {
           <p class="muted small" style="margin:0">Everyone gets the same puzzle today, and you get <b>one try</b>.
             The words appear when you tap Start, and your clock starts then too.
             Fewest steps wins; ties go to the faster time. Each hint adds a step.</p>
-          <button class="btn" data-action="race-start" style="width:100%">Start</button>
+          <button class="btn daily" data-action="race-start" style="width:100%">Start</button>
         </div>
       </main>`;
     return;
@@ -946,15 +927,14 @@ async function drawDailyResult(g) {
   app.innerHTML = `
     <main class="screen">
       ${dailyTop(g)}
-      <div class="result">
-        <span class="label">${won ? `${me.steps} steps · ${fmtTime(me.time_ms)} · par ${g.par}` : `Stopped after ${me.steps} steps`}</span>
-        <h1>${won ? (me.steps <= g.par ? "Perfect ladder!" : "Solved!") : "Not today"}</h1>
-        ${won ? `<div class="big-stars" aria-label="${me.stars} of 3 stars">${"★".repeat(me.stars)}<span class="off">${"★".repeat(3 - me.stars)}</span></div>` : ""}
-        <p class="daily-rank-big" id="daily-rank">&nbsp;</p>
-      </div>
+      <section class="hero daily" data-l="D">
+        <span class="lab">Daily ladder</span>
+        ${won ? `<span class="big" id="daily-rank">${me.steps <= g.par ? "Perfect!" : "Solved!"}</span>` : `<span class="big">Not today</span>`}
+        <p>${won ? `${me.steps} steps · ${fmtTime(me.time_ms)} · par ${g.par} · <span class="hero-stars">${starText(me.stars)}</span>` : `Stopped after ${me.steps} steps`}</p>
+      </section>
       <div class="row">
-        <button class="btn" data-action="daily-share">Share result</button>
-        <a class="btn quiet" href="/leaderboard" data-link>Leaderboard</a>
+        <button class="btn daily" data-action="daily-share">Share result</button>
+        <a class="btn ghost" href="/leaderboard" data-link>🏆 Leaderboard</a>
       </div>
       <div class="card stack">
         <span class="label">Your ladder</span>
@@ -972,8 +952,7 @@ async function drawDailyResult(g) {
     const board = await api("/api/leaderboard/today");
     const ranked = board.rows.filter((r) => !r.gave_up).length;
     const el = document.getElementById("daily-rank");
-    if (el && board.me?.rank) el.innerHTML = `<b>#${board.me.rank}</b> of ${ranked} today`;
-    else if (el) el.textContent = `${board.played} played today`;
+    if (el && board.me?.rank) el.innerHTML = `#${board.me.rank} <span style="font-size:1rem;font-weight:700;opacity:.85">of ${ranked} today</span>`;
   } catch { /* the rank line is optional */ }
 }
 
@@ -1015,7 +994,7 @@ async function renderLeaderboard() {
         </tr>`;
       el.innerHTML = `
         <p class="small muted board-head">Daily ladder · ${fmtDay(b.date)} · ${b.length} letters · par ${b.par} · ${b.played} played</p>
-        ${state.me && !b.me ? `<div class="banner"><span>You haven't played today's ladder yet.</span><button class="btn" data-action="daily-play">Play</button></div>` : ""}
+        ${state.me && !b.me ? `<div class="banner"><span>You haven't played today's ladder yet.</span><button class="btn daily" data-action="daily-play" style="flex:0 0 auto">Play</button></div>` : ""}
         ${b.rows.length ? `
         <div class="board-wrap"><table class="board">
           <thead><tr><th>#</th><th>Player</th><th class="num">Steps</th><th class="num">Time</th><th></th></tr></thead>
@@ -1123,7 +1102,7 @@ function drawTutorial() {
       <div class="coach" role="status">${tip}</div>
       <div class="ladder" id="ladder">${rungs.join("")}</div>
       ${feedbackLine(g)}
-      ${done ? `<button class="btn" data-action="tutorial-skip">Start playing</button>` : keyboard()}
+      ${done ? `<button class="btn daily" data-action="tutorial-skip">Start playing</button>` : keyboard()}
     </main>`;
   drawEntry();
   scrollToEntry();
@@ -1195,7 +1174,7 @@ function renderHelp() {
         <h2>How to play</h2>
         <span style="width:24px"></span>
       </div>
-      <a class="btn" href="/tutorial" data-link>Play the 20-second tutorial</a>
+      <a class="btn daily" href="/tutorial" data-link>Play the 20-second tutorial</a>
       <section class="help-example card">
         <div class="mini-ladder">${example}</div>
         <p class="small muted" style="margin:0">COLD becomes WARM in 4 steps, changing one letter each time.</p>
@@ -1349,12 +1328,11 @@ function drawResult(g) {
       ${state.again ? `
         <div class="banner"><span><b>${esc(state.again.by)}</b> started a new ladder.</span>
           <a class="btn blue" href="/g/${esc(state.again.code)}" data-link>Open</a></div>` : ""}
-      <div class="result">
-        <span class="label">${won ? `Ladder complete in ${g.steps_used} · par ${g.par}` : `Stopped after ${g.steps_used} steps · par ${g.par}`}</span>
-        <h1>${title}</h1>
-        ${won ? `<div class="big-stars" aria-label="${stars} of 3 stars">${"★".repeat(stars)}<span class="off">${"★".repeat(3 - stars)}</span></div>` : ""}
-      </div>
-      ${team ? `<div class="contrib">${counts.map((p) => `<div class="s${p.seat}"><span class="label">${p.me ? "You" : esc(p.name)}</span><b>${p.n} word${p.n === 1 ? "" : "s"}</b></div>`).join("")}</div>` : ""}
+      ${hero(g.mode, `
+        <span class="lab">${MODES[g.mode].label} · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
+        <h1 style="font-size:1.8rem">${title}</h1>
+        <p>${won ? `${g.steps_used} steps · <span class="hero-stars">${starText(stars)}</span>` : `Stopped after ${g.steps_used} steps`}</p>
+        ${team ? `<div class="stats">${counts.map((p) => `<div><span class="small">${p.me ? "You" : esc(p.name)}</span><b>${p.n} word${p.n === 1 ? "" : "s"}</b></div>`).join("")}</div>` : ""}`)}
       <div class="card stack">
         <span class="label">${won ? "Your ladder" : "How far you got"}</span>
         <div class="mini-ladder">${played.join("")}</div>
@@ -1367,7 +1345,7 @@ function drawResult(g) {
       </details>
       <div class="row" style="margin-top:auto">
         <a class="btn ghost" href="/" data-link>Home</a>
-        <button class="btn${team ? " blue" : ""}" data-action="again">Play again${team && partner ? ` with ${esc(partner.name)}` : ""}</button>
+        <button class="btn${MODES[g.mode].cls}" data-action="again">Play again${team && partner ? ` with ${esc(partner.name)}` : ""}</button>
       </div>
     </main>`;
 }
