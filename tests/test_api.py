@@ -8,6 +8,7 @@ def test_requires_name(client_factory):
 
     with TestClient(app) as anon:
         assert anon.get("/api/me").status_code == 401
+        assert anon.post("/api/players", json={"name": "x"}).status_code in (404, 405)  # guests are gone
         assert anon.post("/api/games", json={"mode": "solo", "length": 4, "difficulty": "easy"}).status_code == 401
 
 
@@ -88,9 +89,9 @@ def test_team_game_alternates_turns_and_streams_live(client_factory):
 
 
 def test_outsider_cannot_see_or_join_full_game(client_factory):
-    a = client_factory("A")
-    b = client_factory("B")
-    c = client_factory("C")
+    a = client_factory("Ann")
+    b = client_factory("Ben")
+    c = client_factory("Cat")
     code = a.post("/api/games", json={"mode": "team", "length": 5, "difficulty": "easy"}).json()["code"]
     b.post(f"/api/games/{code}/join")
     assert c.get(f"/api/games/{code}").status_code == 403

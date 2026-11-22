@@ -29,12 +29,36 @@ class Base(DeclarativeBase):
 
 
 class Player(Base):
+    """An account, signed in with Google. The username is what everyone else sees."""
+
     __tablename__ = "players"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(24))
+    google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)  # Google's account id
+    email: Mapped[str | None] = mapped_column(String(254))  # from Google; never shown to others
+    name: Mapped[str | None] = mapped_column(String(20))  # username as typed; empty until chosen
+    name_key: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)  # lowercase, for uniqueness
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class LoginSession(Base):
+    """One signed-in device or browser. A player can have several."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    player: Mapped[Player] = relationship()
+
+
+class Meta(Base):
+    __tablename__ = "meta"
+
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value: Mapped[str] = mapped_column(String(200))
 
 
 class Game(Base):
@@ -122,20 +146,36 @@ engine = create_engine(
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
-def init_db() -> None:
-    Base.metadata.create_all(engine)
-    _add_missing_columns()
+# Bump to wipe every table once on the next start. "2": fresh start when accounts arrived (Nov 2026).
+DATA_VERSION = "2"
 
 
-def _add_missing_columns() -> None:
+def init_db(eng=None) -> None:
+    eng = eng or engine
+    with eng.begin() as conn:
+        current = None
+        if inspect(conn).has_table("meta"):
+            current = conn.execute(text("SELECT value FROM meta WHERE key = 'data_version'")).scalar()
+        if current != DATA_VERSION:
+            # Old guest-only data is not compatible with accounts: start over.
+            for table in ("push_subscriptions", "moves", "game_players", "games", "sessions", "players", "meta"):
+                conn.execute(text(f"DROP TABLE IF EXISTS {table}" + (" CASCADE" if conn.dialect.name == "postgresql" else "")))
+            Base.metadata.create_all(conn)
+            conn.execute(text("INSERT INTO meta (key, value) VALUES ('data_version', :v)"), {"v": DATA_VERSION})
+            return
+    Base.metadata.create_all(eng)
+    _add_missing_columns(eng)
+
+
+def _add_missing_columns(eng) -> None:
     """create_all doesn't touch existing tables; add new nullable columns so old databases keep working."""
-    existing = inspect(engine)
-    with engine.begin() as conn:
+    existing = inspect(eng)
+    with eng.begin() as conn:
         for table in Base.metadata.sorted_tables:
             have = {c["name"] for c in existing.get_columns(table.name)}
             for col in table.columns:
                 if col.name not in have and col.nullable:
-                    kind = col.type.compile(dialect=engine.dialect)
+                    kind = col.type.compile(dialect=eng.dialect)
                     conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {kind}'))
 
 
@@ -144,4 +184,5 @@ def get_db():
         yield session
 
 
-__all__ = ["Base", "Game", "GamePlayer", "Move", "Player", "PushSubscription", "Session", "get_db", "init_db"]
+__all__ = ["Base", "Game", "GamePlayer", "LoginSession", "Meta", "Move", "Player", "PushSubscription", "Session",
+           "get_db", "init_db"]

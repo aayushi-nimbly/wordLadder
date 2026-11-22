@@ -35,14 +35,14 @@ def subscribe(client, endpoint):
 
 
 def test_public_key_is_a_p256_point(client_factory):
-    c = client_factory("A")
+    c = client_factory("Ann")
     key = c.get("/api/push/key").json()["key"]
     raw = base64.urlsafe_b64decode(key + "=" * (-len(key) % 4))
     assert len(raw) == 65 and raw[0] == 4
 
 
 def test_subscribe_rejects_non_https(client_factory):
-    c = client_factory("A")
+    c = client_factory("Ann")
     r = c.post("/api/push/subscribe", json={"endpoint": "http://evil.example/x", "keys": {"p256dh": "k", "auth": "a"}})
     assert r.status_code == 400
 
@@ -91,7 +91,7 @@ def test_solo_games_never_notify(client_factory, sent):
 
 
 def test_dead_subscriptions_are_removed(client_factory, sent):
-    a = client_factory("A")
+    a = client_factory("Ann")
     subscribe(a, "https://push.example/gone-1")
     subscribe(a, "https://push.example/alive-1")
     r = a.post("/api/push/test").json()

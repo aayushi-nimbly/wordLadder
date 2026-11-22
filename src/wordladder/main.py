@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import json
+import os
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import daily, engine, push, rules
+from . import accounts, daily, engine, google, push, rules
 from .db import Game, GamePlayer, Player, PushSubscription, SessionLocal, get_db, init_db
 from .realtime import hub
 
@@ -47,60 +48,133 @@ async def rule_error(_: Request, exc: rules.RuleError):
     return JSONResponse({"detail": str(exc)}, status_code=400)
 
 
-# ---------- players ----------
+# ---------- accounts (Google sign-in) ----------
 
-
-def _hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+DEV_LOGIN = os.environ.get("WORDLADDER_DEV_LOGIN") == "1"  # local browser tests only; never set on Render
+HINT_COOKIE = "wl_name_hint"  # Google first name, to suggest a username right after sign-up
+OAUTH_COOKIE = "wl_oauth"  # state, PKCE verifier and where to go next, during the Google round trip
 
 
 def _player_from_token(db: Session, token: str | None) -> Player | None:
-    if not token:
-        return None
-    return db.scalar(select(Player).where(Player.token_hash == _hash(token)))
+    return accounts.player_for(db, token)
 
 
 def current_player(request: Request, db: DB) -> Player:
     player = _player_from_token(db, request.cookies.get(COOKIE))
     if player is None:
-        raise HTTPException(401, "Enter your name to play.")
+        raise HTTPException(401, "Sign in to play.")
+    if not player.name:
+        raise HTTPException(403, "Pick a username first.")
     return player
 
 
 Me = Annotated[Player, Depends(current_player)]
 
 
-class NameIn(BaseModel):
-    name: str = Field(min_length=1, max_length=24)
+@app.exception_handler(accounts.AccountError)
+async def account_error(_: Request, exc: accounts.AccountError):
+    return JSONResponse({"detail": str(exc)}, status_code=400)
 
 
-def _player_out(p: Player) -> dict:
-    return {"id": p.id, "name": p.name}
+def _safe_next(path: str | None) -> str:
+    """Only ever send people back to a page on this site."""
+    return path if path and path.startswith("/") and not path.startswith("//") else "/"
 
 
-@app.post("/api/players")
-def create_player(body: NameIn, request: Request, response: Response, db: DB):
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(400, "Enter a name.")
-    player = _player_from_token(db, request.cookies.get(COOKIE))
-    if player:  # already a guest on this device: just rename
-        player.name = name
-    else:
-        token = secrets.token_urlsafe(32)
-        player = Player(name=name, token_hash=_hash(token))
-        db.add(player)
-        response.set_cookie(
-            COOKIE, token, max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax",
-            secure=request.url.scheme == "https",
-        )
-    db.commit()
-    return _player_out(player)
+def _cookie(response: Response, request: Request, key: str, value: str, max_age: int) -> None:
+    response.set_cookie(key, value, max_age=max_age, httponly=True, samesite="lax",
+                        secure=request.url.scheme == "https")
+
+
+def _redirect_uri(request: Request) -> str:
+    return f"{request.url.scheme}://{request.url.netloc}/auth/google/callback"
+
+
+@app.get("/auth/google/login")
+def google_login(request: Request, next: str | None = None):
+    url, state, verifier = google.start(_redirect_uri(request))
+    response = RedirectResponse(url, status_code=302)
+    _cookie(response, request, OAUTH_COOKIE, json.dumps([state, verifier, _safe_next(next)]), 600)
+    return response
+
+
+@app.get("/auth/google/callback")
+def google_callback(request: Request, db: DB, code: str | None = None, state: str | None = None,
+                    error: str | None = None):
+    try:
+        saved_state, verifier, next_path = json.loads(request.cookies.get(OAUTH_COOKIE, "[]"))
+    except ValueError:
+        saved_state, verifier, next_path = None, None, "/"
+    if error or not code:
+        return RedirectResponse("/?signin=cancelled", status_code=302)
+    if not saved_state or not secrets.compare_digest(saved_state, state or ""):
+        return RedirectResponse("/?signin=expired", status_code=302)
+    try:
+        claims = google.finish(code, verifier, _redirect_uri(request))
+    except google.GoogleError:
+        return RedirectResponse("/?signin=failed", status_code=302)
+    player = accounts.player_for_google(db, claims["sub"], claims.get("email"))
+    return _signed_in(request, db, player, claims.get("given_name") or claims.get("name"), next_path)
+
+
+def _signed_in(request: Request, db: Session, player: Player, name_hint: str | None, next_path: str):
+    response = RedirectResponse(_safe_next(next_path), status_code=302)
+    _cookie(response, request, COOKIE, accounts.start_session(db, player), COOKIE_MAX_AGE)
+    response.delete_cookie(OAUTH_COOKIE)
+    if not player.name and name_hint:
+        _cookie(response, request, HINT_COOKIE, name_hint[:40], 3600)
+    return response
+
+
+if DEV_LOGIN:
+    @app.get("/auth/dev-login")
+    def dev_login(request: Request, db: DB, sub: str, name: str = "", next: str = "/"):
+        """Stand-in for Google in local browser tests."""
+        player = accounts.player_for_google(db, f"dev-{sub}", f"{sub}@example.com")
+        return _signed_in(request, db, player, name or sub, next)
 
 
 @app.get("/api/me")
-def me(player: Me):
-    return _player_out(player)
+def me(request: Request, db: DB):
+    player = _player_from_token(db, request.cookies.get(COOKIE))
+    if player is None:
+        raise HTTPException(401, "Sign in to play.")
+    out = {"id": player.id, "name": player.name, "email": player.email, "needs_username": not player.name}
+    if not player.name:
+        out["suggestion"] = accounts.suggest_username(db, request.cookies.get(HINT_COOKIE))
+    return out
+
+
+class UsernameIn(BaseModel):
+    username: str = Field(max_length=40)
+
+
+@app.post("/api/username")
+def choose_username(body: UsernameIn, request: Request, db: DB):
+    player = _player_from_token(db, request.cookies.get(COOKIE))
+    if player is None:
+        raise HTTPException(401, "Sign in to play.")
+    if player.name:
+        raise HTTPException(400, "You already have a username.")
+    accounts.set_username(db, player, body.username)
+    return {"id": player.id, "name": player.name, "email": player.email, "needs_username": False}
+
+
+@app.post("/api/logout")
+def log_out(request: Request, response: Response, db: DB):
+    accounts.end_session(db, request.cookies.get(COOKIE))
+    response.delete_cookie(COOKIE)
+    return {"ok": True}
+
+
+@app.post("/api/account/delete")
+def delete_account(request: Request, response: Response, db: DB):
+    player = _player_from_token(db, request.cookies.get(COOKIE))
+    if player is None:
+        raise HTTPException(401, "Sign in to play.")
+    accounts.delete_account(db, player)
+    response.delete_cookie(COOKIE)
+    return {"ok": True}
 
 
 # ---------- puzzles ----------
@@ -406,6 +480,16 @@ def healthz(db: DB):
 # ---------- the web app ----------
 
 
+@app.get("/privacy")
+def privacy():
+    return FileResponse(STATIC / "privacy.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/terms")
+def terms():
+    return FileResponse(STATIC / "terms.html", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/manifest.webmanifest")
 def manifest():
     return FileResponse(STATIC / "manifest.webmanifest", media_type="application/manifest+json")
@@ -420,6 +504,8 @@ def service_worker():
 @app.get("/")
 @app.get("/new")
 @app.get("/help")
+@app.get("/account")
+@app.get("/welcome")
 @app.get("/leaderboard")
 @app.get("/tutorial")
 @app.get("/g/{code}")

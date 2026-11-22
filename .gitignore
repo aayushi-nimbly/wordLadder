@@ -6,3 +6,5 @@ __pycache__/
 *.db-journal
 .DS_Store
 .vapid_private.pem
+google_client.json
+client_secret*.json

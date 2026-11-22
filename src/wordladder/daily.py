@@ -1,7 +1,7 @@
 """Daily ladder and leaderboards.
 
 Every day (midnight India time) there is one puzzle, the same for everyone. The date decides its
-word length (4, 5 or 6 letters) as well as its words. Each player gets one attempt: the clock starts on Start, each hint adds a step, and the result
+word length (4 or 5 letters) as well as its words. Each player gets one attempt: the clock starts on Start, each hint adds a step, and the result
 is ranked by fewest steps, then fastest time.
 """
 
@@ -33,8 +33,11 @@ def seconds_until_reset() -> int:
     return int((tomorrow - now).total_seconds())
 
 
+DAILY_LENGTHS = (4, 5)  # 6-letter ladders felt too hard for a daily
+
+
 def length_for(day: date) -> int:
-    return random.Random(f"{SALT}:{day.isoformat()}:length").choice(engine.LENGTHS)
+    return random.Random(f"{SALT}:{day.isoformat()}:length").choice(DAILY_LENGTHS)
 
 
 @lru_cache(maxsize=64)

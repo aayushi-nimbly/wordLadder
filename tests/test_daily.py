@@ -46,8 +46,8 @@ def test_same_puzzle_for_everyone_and_changes_daily():
     assert len(p1.start) == len(p1.end) == n
     lo, hi = engine.PAR_RANGES[n][daily.DIFFICULTY]
     assert lo <= p1.par <= hi
-    # The length varies from day to day.
-    assert {daily.length_for(DAY + timedelta(days=i)) for i in range(30)} == set(engine.LENGTHS)
+    # The length varies from day to day, but the daily is never 6 letters.
+    assert {daily.length_for(DAY + timedelta(days=i)) for i in range(30)} == {4, 5}
 
 
 def test_one_attempt_and_words_hidden_until_start(client_factory):
@@ -93,8 +93,8 @@ def test_today_board_ranks_steps_then_time(client_factory):
 
 
 def test_week_board_and_streak(client_factory, fixed_day):
-    a = client_factory("Week A")
-    b = client_factory("Week B")
+    a = client_factory("WeekA")
+    b = client_factory("WeekB")
     fixed_day["day"] = DAY + timedelta(days=100)  # a fresh week: Monday 3 Mar 2027
     monday = fixed_day["day"] - timedelta(days=fixed_day["day"].weekday())
     for offset in range(3):
@@ -105,8 +105,8 @@ def test_week_board_and_streak(client_factory, fixed_day):
     assert a.get("/api/daily").json()["streak"] == 3
 
     week = a.get("/api/leaderboard/week").json()
-    top = [r for r in week["rows"] if r["name"] in ("Week A", "Week B")]
-    assert top[0]["name"] == "Week A" and top[0]["stars"] == 9 and top[0]["days"] == 3
+    top = [r for r in week["rows"] if r["name"] in ("WeekA", "WeekB")]
+    assert top[0]["name"] == "WeekA" and top[0]["stars"] == 9 and top[0]["days"] == 3
     assert top[1]["stars"] == 2
 
     fixed_day["day"] = monday + timedelta(days=4)  # skipped a day

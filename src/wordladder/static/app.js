@@ -170,15 +170,18 @@ async function route() {
   if (!state.me) {
     try {
       state.me = await api("/api/me");
-      syncPush().catch(() => {});
+      if (!state.me.needs_username) syncPush().catch(() => {});
     } catch (e) {
       if (e.status !== 401) return renderError(e.message);
       let invite = null;
       if (gameMatch) invite = await api(`/api/invites/${gameMatch[2]}`).catch(() => null);
-      return renderName({ invite });
+      return renderAuth({ invite });
     }
   }
   window.scrollTo(0, 0);
+  if (state.me.needs_username) return renderUsername();
+  if (location.search.includes("signin=")) history.replaceState(null, "", path);
+  if (path === "/account") return renderAccount();
   if (path === "/new") {
     const mode = new URLSearchParams(location.search).get("mode");
     return renderSetup(MODES[mode] ? mode : "solo");
@@ -197,7 +200,18 @@ function renderError(message) {
 
 // ---------- name ----------
 
-function renderName({ invite = null, rename = false } = {}) {
+// ---------- sign in / username / account ----------
+
+const GOOGLE_G = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.3l7.9 6.1C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C.9 16.6 0 20.2 0 24s.9 7.4 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>`;
+
+const SIGNIN_ERRORS = {
+  cancelled: "Sign-in was cancelled. Tap the button to try again.",
+  expired: "That sign-in took too long. Please try again.",
+  failed: "Google sign-in didn't work. Please try again.",
+};
+
+function renderAuth({ invite = null } = {}) {
+  const problem = SIGNIN_ERRORS[new URLSearchParams(location.search).get("signin")];
   const intro = invite?.open
     ? invite.mode === "race"
       ? `<p><b>${esc(invite.host)}</b> challenged you to a ${invite.length}-letter word ladder. Fewest steps wins.</p>`
@@ -205,22 +219,55 @@ function renderName({ invite = null, rename = false } = {}) {
     : invite
       ? `<p class="muted">That game already has two players.</p>`
       : `<p class="muted">Change one letter at a time.</p>`;
+  const next = encodeURIComponent(location.pathname === "/" ? "/" : location.pathname);
   app.innerHTML = `
     <main class="screen center">
       <h1 class="logo-big">${brand(true)}</h1>
-      ${rename ? "" : intro}
-      <form class="stack" data-form="name">
-        <div class="field">
-          <label class="label" for="name">${rename ? "Change your name" : "Your name"}</label>
-          <input class="input" id="name" name="name" maxlength="24" autocomplete="nickname" required
-            value="${esc(rename ? state.me?.name : "")}" placeholder="What your friend will see">
-        </div>
-        <button class="btn daily" type="submit">${rename ? "Save" : invite?.open ? "Join the game" : "Start playing"}</button>
-        ${rename ? `<a class="btn ghost" href="/" data-link>Cancel</a>` : ""}
-      </form>
-      ${rename ? "" : `<p class="muted small">No signup. Your games are saved in this browser. <a href="/help" data-link>How to play</a></p>`}
+      ${intro}
+      ${problem ? `<p class="form-error" role="alert">${problem}</p>` : ""}
+      <a class="btn google" href="/auth/google/login?next=${next}">${GOOGLE_G}<span>Continue with Google</span></a>
+      <p class="muted small" style="margin:0">Your games follow you to any phone or browser. We never show your
+        email to other players. <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
     </main>`;
-  app.querySelector("#name").focus();
+}
+
+function renderUsername() {
+  app.innerHTML = `
+    <main class="screen center">
+      <h1 class="logo-big">${brand(true)}</h1>
+      <h2>Pick a username</h2>
+      <p class="muted" style="margin:0">This is what your friends and the leaderboard will see. Your Google name and email stay private.</p>
+      <form class="stack" data-form="username">
+        <label class="label" for="username">Username</label>
+        <input class="input" id="username" name="username" maxlength="20" required autocomplete="nickname"
+          autocapitalize="none" spellcheck="false" value="${esc(state.me.suggestion ?? "")}">
+        <p class="small muted" style="margin:0">3–20 letters or numbers. You can use _ . -</p>
+        <p class="form-error" id="username-error" role="alert"></p>
+        <button class="btn daily" type="submit">Continue</button>
+      </form>
+    </main>`;
+  const input = app.querySelector("#username");
+  input.focus();
+  input.select();
+}
+
+function renderAccount() {
+  const m = state.me;
+  app.innerHTML = `
+    <main class="screen">
+      <div class="top"><a class="icon-btn" href="/" data-link aria-label="Back">←</a><h2>Account</h2><span style="width:24px"></span></div>
+      <section class="card stack" style="flex-direction:row;align-items:center;gap:14px">
+        <span class="avatar big" aria-hidden="true">${esc([...m.name][0]?.toUpperCase() ?? "?")}</span>
+        <span style="min-width:0"><span class="label">Username</span><br><b style="font:800 1.3rem var(--display)">${esc(m.name)}</b>
+          <br><span class="small muted" style="overflow-wrap:anywhere">${GOOGLE_G} ${esc(m.email ?? "Google account")}</span></span>
+      </section>
+      <p class="small muted" style="margin:0">Only you can see your email. Sign in with the same Google account on any device to continue your games.</p>
+      <button class="btn ghost" data-action="logout">Log out</button>
+      <div style="margin-top:auto" class="stack">
+        <button class="btn ghost danger-text" data-action="delete-account">Delete my account</button>
+        <p class="small muted" style="margin:0;text-align:center"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
+      </div>
+    </main>`;
 }
 
 // ---------- home ----------
@@ -260,7 +307,7 @@ async function renderHome() {
         ${brand()}
         <span class="top-actions">
           <a class="trophy" href="/leaderboard" data-link aria-label="Leaderboard" title="Leaderboard">🏆</a>
-          <button class="avatar" data-action="rename" aria-label="Change your name (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</button>
+          <a class="avatar" href="/account" data-link aria-label="Your account (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</a>
         </span>
       </div>
       <section class="modes-grid" aria-label="Ways to play">
@@ -571,7 +618,7 @@ function drawInvite(g) {
         <div class="stack" style="align-items:center;text-align:center;gap:10px;padding-block:6px">
           <span class="lab">Game code</span>
           <div class="tiles code-tiles">${[...g.code].map((c) => `<span class="t">${esc(c)}</span>`).join("")}</div>
-          <p style="max-width:none">Send this to a friend. They tap it, type a name and join. No signup.</p>
+          <p style="max-width:none">Send this to a friend. They tap it, sign in with Google and join.</p>
         </div>`)}
       <div class="link-box"><code>${esc(url)}</code><button class="btn quiet" data-action="copy-invite" style="min-height:36px">Copy</button></div>
       ${navigator.share ? `<button class="btn${MODES[g.mode].cls}" data-action="share-invite">Share link</button>` : ""}
@@ -1354,7 +1401,34 @@ function drawResult(g) {
 
 let giveUpArmed = null;
 const actions = {
-  async rename() { renderName({ rename: true }); },
+  async logout(el) {
+    el.disabled = true;
+    try {  // this device should stop getting notifications for this account
+      const sub = await navigator.serviceWorker?.ready.then((r) => r.pushManager?.getSubscription());
+      if (sub) await api("/api/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } });
+    } catch { /* not subscribed */ }
+    await api("/api/logout", { method: "POST" }).catch(() => {});
+    state.me = null;
+    state.daily = null;
+    go("/", { replace: true });
+  },
+  async "delete-account"(el) {
+    if (giveUpArmed !== el) {  // same two-tap confirm as Give up
+      giveUpArmed = el;
+      el.textContent = "Tap again to delete everything";
+      setTimeout(() => { if (giveUpArmed === el) { giveUpArmed = null; el.textContent = "Delete my account"; } }, 4000);
+      return;
+    }
+    giveUpArmed = null;
+    try {
+      const sub = await navigator.serviceWorker?.ready.then((r) => r.pushManager?.getSubscription());
+      await sub?.unsubscribe();
+    } catch { /* not subscribed */ }
+    await api("/api/account/delete", { method: "POST" });
+    state.me = null;
+    toast("Your account was deleted");
+    go("/", { replace: true });
+  },
   async install() {
     const p = state.installPrompt;
     if (!p) return;
@@ -1530,19 +1604,21 @@ app.addEventListener("click", (ev) => {
 app.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const form = ev.target.dataset.form;
-  if (form === "name") {
-    const name = new FormData(ev.target).get("name").trim();
-    if (!name) return;
+  if (form === "username") {
+    const errEl = document.getElementById("username-error");
+    const btn = ev.target.querySelector("button[type=submit]");
     askForPushOnce();
-    const isNew = !state.me;
+    btn.disabled = true;
+    errEl.textContent = "";
     try {
-      state.me = await api("/api/players", { method: "POST", body: { name } });
+      state.me = await api("/api/username", { method: "POST", body: { username: new FormData(ev.target).get("username").trim() } });
       syncPush().catch(() => {});
-      // First visit (not from an invite): teach the game by playing a tiny one.
-      if (isNew && location.pathname === "/" && !tutorialSeen()) return go("/tutorial", { replace: true });
+      // A brand-new player (not from an invite) learns the game by playing a tiny one.
+      if (location.pathname === "/" && !tutorialSeen()) return go("/tutorial", { replace: true });
       route();
     } catch (e) {
-      toast(e.message);
+      errEl.textContent = e.message;
+      btn.disabled = false;
     }
   } else if (form === "join-code") {
     const code = new FormData(ev.target).get("code").trim().toUpperCase();
