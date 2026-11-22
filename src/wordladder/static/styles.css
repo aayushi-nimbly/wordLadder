@@ -62,7 +62,7 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
   background: none; border: 0; padding: 8px; margin: -8px; border-radius: 8px;
   font-size: 1.3rem; line-height: 1; text-decoration: none; display: inline-flex;
 }
-.top-actions { display: flex; align-items: center; gap: 14px; flex: none; white-space: nowrap; }
+.top-actions { display: flex; align-items: center; gap: 10px; flex: none; white-space: nowrap; }
 .brand { display: inline-flex; align-items: center; gap: 8px; }
 .brand-tiles { display: inline-flex; gap: 2px; }
 .brand-tiles i {
@@ -76,6 +76,11 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .brand.big .brand-word { font-size: 2.6rem; }
 .how-link { font-weight: 700; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 2px; text-decoration-color: var(--line); }
 .how-link:hover { text-decoration-color: var(--ink); }
+.trophy {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--line); background: var(--surface); text-decoration: none; font-size: 1.05rem;
+}
+.trophy:hover { border-color: var(--ink); }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0;
   background: var(--p1-soft); color: var(--p1); font: 800 1rem var(--display);
@@ -148,7 +153,8 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
 .btn.quiet { background: var(--surface); color: var(--ink); border: 1px solid var(--line); min-height: 44px; font-size: .95rem; box-shadow: none; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; gap: 10px; }
-.row > * { flex: 1; }
+.row > * { flex: 1; min-width: 0; }
+.input { width: 100%; min-width: 0; }
 
 /* forms */
 .field { display: flex; flex-direction: column; gap: 6px; }
@@ -322,6 +328,18 @@ h1, h2, h3 { font-family: var(--display); line-height: 1.15; margin: 0; text-wra
   background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 99px;
   font-weight: 700; font-size: .95rem; max-width: calc(100% - 32px); z-index: 10;
   box-shadow: 0 6px 24px rgb(0 0 0 / .2);
+}
+
+/* Narrow phones: tighten the home header so it never pushes the page sideways. */
+.top { flex-wrap: wrap; row-gap: 8px; }
+.top > * { min-width: 0; }
+@media (max-width: 400px) {
+  .brand { gap: 5px; }
+  .brand-tiles i { width: 19px; height: 21px; font-size: .75rem; }
+  .brand-word { font-size: 1.2rem; }
+  .how-link { font-size: .9rem; }
+  .top-actions { gap: 8px; }
+  .trophy, .avatar { width: 32px; height: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

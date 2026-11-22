@@ -103,7 +103,7 @@ def test_race_notifications(client_factory, sent):  # noqa: F811
     subscribe(b, "https://push.example/race-b")
     code = a.post("/api/games", json={"mode": "race", "length": 4, "start": "cold", "end": "warm"}).json()["code"]
     b.post(f"/api/games/{code}/join")
-    assert [n["title"] for n in sent] == ["Riya accepted your race"]
+    assert [n["title"] for n in sent] == ["Riya accepted your challenge"]
     sent.clear()
 
     a.post(f"/api/games/{code}/start")
@@ -114,7 +114,7 @@ def test_race_notifications(client_factory, sent):  # noqa: F811
     assert [(n["endpoint"], n["title"]) for n in sent] == [("https://push.example/race-a", "Riya finished in 4 steps")]
     sent.clear()
     play(a, code, PATH[2:])
-    assert [(n["endpoint"], n["title"]) for n in sent] == [("https://push.example/race-b", "You won the race 🏆")]
+    assert [(n["endpoint"], n["title"]) for n in sent] == [("https://push.example/race-b", "You won 🏆")]
 
 
 def test_hidden_tab_still_gets_notified(client_factory, sent):  # noqa: F811

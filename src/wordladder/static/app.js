@@ -54,7 +54,7 @@ function ago(iso) {
 const MODES = {
   solo: { title: "Solo game", button: "Start game", cls: " solo" },
   team: { title: "Team up with a friend", button: "Create invite", cls: " blue" },
-  race: { title: "Race a friend", button: "Create race", cls: " race" },
+  race: { title: "Compete with a friend", button: "Create challenge", cls: " race" },
 };
 const starText = (n) => "★".repeat(n || 0) + "☆".repeat(3 - (n || 0));
 const inviteUrl = (code) => `${location.origin}/j/${code}`;
@@ -191,7 +191,7 @@ function renderError(message) {
 function renderName({ invite = null, rename = false } = {}) {
   const intro = invite?.open
     ? invite.mode === "race"
-      ? `<p><b>${esc(invite.host)}</b> challenged you to a ${invite.length}-letter word ladder race.</p>`
+      ? `<p><b>${esc(invite.host)}</b> challenged you to a ${invite.length}-letter word ladder. Fewest steps wins.</p>`
       : `<p><b>${esc(invite.host)}</b> invited you to climb a ${invite.length}-letter word ladder together.</p>`
     : invite
       ? `<p class="muted">That game already has two players.</p>`
@@ -226,7 +226,7 @@ async function renderHome() {
   }
   const row = (g) => {
     const who = g.mode === "solo" ? "Solo" : g.partner ? esc(g.partner) : "Invite sent";
-    const kind = { solo: "", team: "Team · ", race: "Race · " }[g.mode];
+    const kind = { solo: "", team: "Team · ", race: "Compete · " }[g.mode];
     let right;
     if (g.mode === "race" && g.status === "finished") {
       right = { won: `<span class="pill turn">Won</span>`, lost: `<span class="pill wait">Lost</span>`,
@@ -254,6 +254,7 @@ async function renderHome() {
         ${brand()}
         <span class="top-actions">
           <a class="how-link" href="/help" data-link>How to play</a>
+          <a class="trophy" href="/leaderboard" data-link aria-label="Leaderboard" title="Leaderboard">🏆</a>
           <button class="avatar" data-action="rename" aria-label="Change your name (${esc(state.me.name)})">${esc([...state.me.name][0]?.toUpperCase() ?? "?")}</button>
         </span>
       </div>
@@ -274,14 +275,11 @@ async function renderHome() {
           <span class="mode-foot">Invite →</span>
         </a>
         <a class="mode-card race" href="/new?mode=race" data-link>
-          ${modeMark("RUN")}<b class="mode-title">Race</b>
+          ${modeMark("WIN")}<b class="mode-title">Compete</b>
           <span class="mode-sub">Same puzzle, fewest steps wins</span>
           <span class="mode-foot">Challenge →</span>
         </a>
       </section>
-      <a class="list-link" href="/leaderboard" data-link>
-        <span><b>Leaderboard</b><span class="small muted"> · today, this week, friends</span></span><span aria-hidden="true">→</span>
-      </a>
       <form class="row" data-form="join-code">
         <input class="input code-input" id="join-code" name="code" aria-label="Game code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" style="flex:2">
         <button class="btn ghost" type="submit">Join</button>
@@ -470,7 +468,7 @@ function openSocket(code) {
     if (msg.type === "again") {
       state.again = msg;
       if (state.game && ["won", "gave_up", "finished"].includes(state.game.status)) drawGame();
-      else toast(`${msg.by} started a new ${state.game?.mode === "race" ? "race" : "ladder"}`);
+      else toast(`${msg.by} started a new ${state.game?.mode === "race" ? "challenge" : "ladder"}`);
     }
   };
   socket.onclose = () => {
@@ -551,7 +549,7 @@ function drawJoin(g) {
   app.innerHTML = `
     <main class="screen center">
       <span class="label">Invitation · ${g.length} letters</span>
-      <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} ${g.mode === "race" ? "challenged you to a race" : "invited you"}</h1>
+      <h1 class="logo-big" style="font-size:2.2rem">${esc(host)} ${g.mode === "race" ? "challenged you" : "invited you"}</h1>
       <p class="muted">${g.mode === "race"
         ? "You both solve the same puzzle, each on your own ladder. Fewest steps wins; if it's a tie, the faster time wins."
         : "Take turns adding one word each. Get from the start word to the end word together."}</p>
@@ -560,7 +558,7 @@ function drawJoin(g) {
         <span class="muted">to</span>
         ${tiles(g.end, { cls: "end" })}
       </div>
-      <button class="btn${MODES[g.mode].cls}" data-action="join">${g.mode === "race" ? "Accept the race" : `Join ${esc(host)}'s game`}</button>
+      <button class="btn${MODES[g.mode].cls}" data-action="join">${g.mode === "race" ? "Accept the challenge" : `Join ${esc(host)}'s game`}</button>
       <a class="linkish" href="/tutorial?then=${encodeURIComponent(`/g/${g.code}`)}" data-link style="align-self:center">New to word ladders? 20-second tutorial</a>
     </main>`;
 }
@@ -730,7 +728,7 @@ function drawRace(g) {
       <main class="screen">
         ${top}
         <div class="card stack" style="align-items:center;text-align:center;margin-block:auto">
-          <span class="label">Race · par ${g.par}</span>
+          <span class="label">Compete · par ${g.par}</span>
           ${tiles(g.start, { target: g.end })}
           <span class="muted">to</span>
           ${tiles(g.end, { cls: "end" })}
@@ -798,7 +796,7 @@ function drawRaceResult(g) {
         <div class="banner"><span><b>${esc(state.again.by)}</b> challenged you to a rematch.</span>
           <a class="btn race" href="/g/${esc(state.again.code)}" data-link>Open</a></div>` : ""}
       <div class="result">
-        <span class="label">Race · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
+        <span class="label">Compete · ${up(g.start)} → ${up(g.end)} · par ${g.par}</span>
         <h1>${title}</h1>
       </div>
       <div class="contrib">
@@ -1045,15 +1043,15 @@ async function renderLeaderboard() {
       const b = await api("/api/leaderboard/friends");
       el.innerHTML = b.rows.length ? `
         <div class="board-wrap"><table class="board">
-          <thead><tr><th>Friend</th><th class="num">Races W–L</th><th class="num">Team games</th><th class="num">Avg ★</th></tr></thead>
+          <thead><tr><th>Friend</th><th class="num">Won–Lost</th><th class="num">Team games</th><th class="num">Avg ★</th></tr></thead>
           <tbody>${b.rows.map((r) => `
             <tr><td class="name">${esc(r.name)}</td>
               <td class="num">${r.won}–${r.lost}${r.tied ? ` (${r.tied} tie${r.tied === 1 ? "" : "s"})` : ""}</td>
               <td class="num">${r.team_games}</td><td class="num">${r.avg_stars ?? "—"}</td></tr>`).join("")}
           </tbody>
         </table></div>
-        <p class="small muted">Your record against each friend in races, and how your team games went.</p>`
-        : `<p class="empty card">Play a Team game or a Race with a friend and they'll show up here.</p>`;
+        <p class="small muted">Your record against each friend in Compete games, and how your Team games went.</p>`
+        : `<p class="empty card">Play a Team or Compete game with a friend and they'll show up here.</p>`;
     }
   } catch (e) {
     el.innerHTML = `<p class="empty card">${esc(e.message)}</p>`;
@@ -1224,7 +1222,7 @@ function renderHelp() {
         <ul class="rules">
           <li><b>Par</b> is the fewest steps the puzzle can be solved in.</li>
           <li>Finish in par for ★★★, 1–2 extra steps for ★★, more for ★.</li>
-          <li><b>Hint</b> shows which letter to change and what to change it to; tap again to fill in the word. You get 3 hints for 4-letter words, 4 for 5 and 5 for 6. In races and the daily, each hint adds a step.</li>
+          <li><b>Hint</b> shows which letter to change and what to change it to; tap again to fill in the word. You get 3 hints for 4-letter words, 4 for 5 and 5 for 6. In Compete and the daily, each hint adds a step.</li>
           <li><b>Undo</b> takes back the last word, but that step still counts.</li>
           <li>Stuck with "no way through"? That word is a dead end. Undo and try another.</li>
         </ul>
@@ -1235,7 +1233,7 @@ function renderHelp() {
           <div><b>Solo</b><span>Just you and the puzzle.</span></div>
           <div><b>Team</b><span>You and a friend take turns adding one word each to the same ladder, and win together. You get a notification when it's your turn.</span></div>
           <div><b>Daily ladder</b><span>One puzzle a day, the same for everyone. Its length (4, 5 or 6 letters) changes from day to day. You get one try, the words appear when you tap Start, and you're ranked on the leaderboard by fewest steps, then time. Play every day to keep your streak.</span></div>
-          <div><b>Race</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. Hints cost a step.</span></div>
+          <div><b>Compete</b><span>You both get the same puzzle and climb your own ladders. Fewest steps wins; if tied, the faster time wins. Your clock starts when you tap Start, and you can't see your friend's words until you're both done. Hints cost a step.</span></div>
         </div>
       </section>
       <section class="stack">

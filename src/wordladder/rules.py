@@ -176,9 +176,9 @@ def start_race(db: Session, game: Game, player: Player) -> None:
     """Starts this player's clock. Each racer starts whenever they're ready."""
     seat = seat_of(game, player)
     if seat is None or game.mode not in CLOCKED:
-        raise RuleError("This isn't a race you're in.")
+        raise RuleError("This isn't a challenge you're in.")
     if game.status != "active":
-        raise RuleError("Waiting for your friend to join." if game.status == "waiting" else "This race is over.")
+        raise RuleError("Waiting for your friend to join." if game.status == "waiting" else "This challenge is over.")
     gp = _seat(game, seat)
     if gp.started_at is None:
         gp.started_at = utcnow()
@@ -278,7 +278,7 @@ def give_up(db: Session, game: Game, player: Player) -> None:
     if game.mode in CLOCKED and game.status == "active":
         gp = _seat(game, seat)
         if _done(gp):
-            raise RuleError("You've already finished this race.")
+            raise RuleError("You've already finished this one.")
         gp.gave_up = True
         _finish_race_if_done(game)
     else:

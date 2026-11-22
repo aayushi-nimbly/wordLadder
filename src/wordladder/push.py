@@ -134,19 +134,19 @@ def _race_notes(game: Game, actor_id: int, event: str, online: set[int], new_gam
             continue
         pid = seat.player_id
         if event == "joined":
-            notes.append(Note(pid, f"{name} accepted your race", f"{ladder}. Your clock starts when you tap Start.", url, tag))
+            notes.append(Note(pid, f"{name} accepted your challenge", f"{ladder}. Your clock starts when you tap Start.", url, tag))
         elif event in ("move", "gave_up") and game.status == "finished":
             outcome = rules.race_outcome(game, seat.seat)
-            title = {"won": "You won the race 🏆", "lost": f"{name} won the race", "tie": "The race is a tie"}.get(
-                outcome, "The race is over")
+            title = {"won": "You won 🏆", "lost": f"{name} won this one", "tie": "It's a tie"}.get(
+                outcome, "The challenge is over")
             notes.append(Note(pid, title, f"{ladder}. See both ladders.", url, tag))
         elif event == "move" and actor and actor.finished_at and not seat.finished_at:
             notes.append(Note(pid, f"{name} finished in {actor.steps_used} steps",
                               f"Can you beat it? {ladder}", url, tag))
         elif event == "gave_up":
-            notes.append(Note(pid, f"{name} gave up the race", f"Finish {ladder} to win.", url, tag))
+            notes.append(Note(pid, f"{name} gave up", f"Finish {ladder} to win.", url, tag))
         elif event == "again" and new_game is not None:
-            notes.append(Note(pid, f"{name} challenged you to a new race",
+            notes.append(Note(pid, f"{name} challenged you again",
                               f"{_w(new_game.start_word)} → {_w(new_game.end_word)}", f"/g/{new_game.code}",
                               f"game-{new_game.code}"))
     return notes
