@@ -8,6 +8,8 @@ online with a friend: you add a word, they add the next, and you climb the ladde
 - "Your turn" notifications on your phone, plus a reminder if a turn waits 24 hours
 - Installable to the home screen (PWA)
 
+**Live:** https://wordladder-ys5c.onrender.com
+
 The design plan and screen mockups are in [`docs/plan.html`](docs/plan.html).
 
 ## Run it locally
@@ -89,9 +91,12 @@ not used. `render.yaml` describes the service.
 
 1. **Database (Neon):** create a project in the AWS Singapore region and copy its connection
    string (`postgresql://...`).
-2. **App (Render):** New > Blueprint, pick this GitHub repo, paste the Neon connection string as
-   `DATABASE_URL`, and apply. Render builds it, generates the notification secret, and serves it at
-   `https://wordladder-<something>.onrender.com`. Every push to `main` redeploys.
+2. **App (Render):** New > Web Service from this repo, Python 3, region Singapore, Free instance,
+   with the build and start commands from `render.yaml`, health check path `/healthz`, and these
+   environment variables: `PYTHON_VERSION=3.12.14`, `DATABASE_URL` (the Neon string), and
+   `WORDLADDER_VAPID_PRIVATE_KEY` (from `openssl rand -base64 32`; never change it, or existing
+   notification subscriptions stop working). Every push to `main` redeploys.
+   (New > Blueprint reads `render.yaml` directly, but Render asks for a card on file for Blueprints.)
 
 On the free plan the app sleeps after 15 minutes without visitors, so the first visit after that
 takes about a minute. Turn reminders are checked whenever it's awake.
