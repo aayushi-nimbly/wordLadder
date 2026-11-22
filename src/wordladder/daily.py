@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import random
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -36,6 +37,7 @@ def length_for(day: date) -> int:
     return random.Random(f"{SALT}:{day.isoformat()}:length").choice(engine.LENGTHS)
 
 
+@lru_cache(maxsize=64)
 def puzzle(day: date) -> engine.Puzzle:
     """The same puzzle for everyone on `day`, chosen from the date alone."""
     length = length_for(day)
@@ -45,12 +47,15 @@ def puzzle(day: date) -> engine.Puzzle:
 # ---------- playing ----------
 
 
+def _todays_games(day: date):
+    """Daily games for `day` that are for that day's puzzle (ignores attempts at an older version of it)."""
+    p = puzzle(day)
+    return (Game.mode == "daily", Game.daily_date == day.isoformat(),
+            Game.start_word == p.start, Game.end_word == p.end)
+
+
 def _my_daily(db: Session, player: Player, day: date) -> Game | None:
-    return db.scalar(
-        select(Game).join(GamePlayer).where(
-            Game.mode == "daily", Game.daily_date == day.isoformat(), GamePlayer.player_id == player.id,
-        )
-    )
+    return db.scalar(select(Game).join(GamePlayer).where(*_todays_games(day), GamePlayer.player_id == player.id))
 
 
 def open_daily(db: Session, player: Player) -> Game:
@@ -81,7 +86,13 @@ def _results(db: Session, day_from: date, day_to: date):
         .join(GamePlayer, GamePlayer.game_id == Game.id)
         .where(Game.mode == "daily", Game.daily_date >= day_from.isoformat(), Game.daily_date <= day_to.isoformat())
     )
-    return [(g, s) for g, s in db.execute(q).all() if s.finished_at or s.gave_up]
+    return [(g, s) for g, s in db.execute(q).all()
+            if (s.finished_at or s.gave_up) and (g.start_word, g.end_word) == _words(g.daily_date)]
+
+
+def _words(iso: str) -> tuple[str, str]:
+    p = puzzle(date.fromisoformat(iso))
+    return p.start, p.end
 
 
 def _time_ms(seat: GamePlayer) -> int:
@@ -179,8 +190,7 @@ def overview(db: Session, player: Player) -> dict:
     day = today()
     p = puzzle(day)
     played = db.scalar(
-        select(func.count(GamePlayer.id)).join(Game)
-        .where(Game.mode == "daily", Game.daily_date == day.isoformat(), GamePlayer.started_at.is_not(None))
+        select(func.count(GamePlayer.id)).join(Game).where(*_todays_games(day), GamePlayer.started_at.is_not(None))
     )
     game = _my_daily(db, player, day)
     mine = None
