@@ -349,6 +349,12 @@ async def _broadcast_fresh(code: str) -> None:
             await hub.send_state(game)
 
 
+@app.get("/healthz")
+def healthz(db: DB):
+    db.execute(select(1))
+    return {"ok": True}
+
+
 # ---------- the web app ----------
 
 

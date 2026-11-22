@@ -1,0 +1,19 @@
+# Render blueprint: one free web service. The database lives elsewhere (see README, "Deploy").
+services:
+  - type: web
+    name: wordladder
+    runtime: python
+    plan: free
+    region: singapore  # closest Render region to India; keep the database in Singapore too
+    buildCommand: pip install uv==0.12.19 && uv sync --frozen --no-dev
+    startCommand: .venv/bin/uvicorn wordladder.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.14
+      # Postgres connection string, pasted in when you create the service.
+      - key: DATABASE_URL
+        sync: false
+      # Secret the notification signing key is derived from. Render generates it once.
+      - key: WORDLADDER_VAPID_PRIVATE_KEY
+        generateValue: true

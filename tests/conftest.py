@@ -5,7 +5,7 @@ import pytest
 
 # Point the app at a throwaway database before it is imported.
 _tmp = tempfile.mkdtemp()
-os.environ["WORDLADDER_DB"] = f"sqlite:///{_tmp}/test.db"
+os.environ["WORDLADDER_DB"] = os.environ.get("TEST_DB") or f"sqlite:///{_tmp}/test.db"
 os.environ["WORDLADDER_VAPID_FILE"] = f"{_tmp}/vapid.pem"
 
 from fastapi.testclient import TestClient  # noqa: E402

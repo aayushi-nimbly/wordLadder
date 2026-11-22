@@ -77,10 +77,24 @@ need the site on HTTPS. On Android and desktop Chrome they work in the browser t
 
 | Variable | Default | Use |
 | --- | --- | --- |
-| `WORDLADDER_DB` | `sqlite:///./wordladder.db` | Database URL (Postgres in production) |
-| `WORDLADDER_VAPID_PRIVATE_KEY` | from `.vapid_private.pem` | Notification signing key. Print it with `uv run python -m wordladder.push` |
-| `WORDLADDER_VAPID_SUBJECT` | `https://localhost` | The site's address, e.g. `https://wordladder.onrender.com`. Apple requires a real one |
+| `DATABASE_URL` or `WORDLADDER_DB` | `sqlite:///./wordladder.db` | Database URL. `postgres://` URLs work as-is |
+| `WORDLADDER_VAPID_PRIVATE_KEY` | from `.vapid_private.pem` | Any long random secret; the notification key pair is derived from it |
+| `WORDLADDER_VAPID_SUBJECT` | `RENDER_EXTERNAL_URL`, else `https://localhost` | The site's address. Apple requires a real one |
 
-## Still to do
+## Deploy
 
-- Deploy (Render or Fly.io + Postgres) so friends can reach it and it can be installed
+The app runs on [Render](https://render.com)'s free plan, with the database on
+[Neon](https://neon.tech)'s free plan. Render's own free Postgres is deleted after 30 days, so it's
+not used. `render.yaml` describes the service.
+
+1. **Database (Neon):** create a project in the AWS Singapore region and copy its connection
+   string (`postgresql://...`).
+2. **App (Render):** New > Blueprint, pick this GitHub repo, paste the Neon connection string as
+   `DATABASE_URL`, and apply. Render builds it, generates the notification secret, and serves it at
+   `https://wordladder-<something>.onrender.com`. Every push to `main` redeploys.
+
+On the free plan the app sleeps after 15 minutes without visitors, so the first visit after that
+takes about a minute. Turn reminders are checked whenever it's awake.
+
+To test the production setup locally against Postgres, run the tests with
+`TEST_DB=postgresql://user@localhost:5432/dbname uv run pytest`.

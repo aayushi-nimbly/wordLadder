@@ -8,7 +8,16 @@ from datetime import datetime, timezone
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
-DB_URL = os.environ.get("WORDLADDER_DB", "sqlite:///./wordladder.db")
+def _db_url() -> str:
+    url = os.environ.get("WORDLADDER_DB") or os.environ.get("DATABASE_URL") or "sqlite:///./wordladder.db"
+    # Hosts hand out postgres:// URLs; SQLAlchemy needs to be told to use the psycopg driver.
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DB_URL = _db_url()
 
 
 def utcnow() -> datetime:
@@ -97,7 +106,9 @@ class PushSubscription(Base):
 
 
 engine = create_engine(
-    DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
+    DB_URL,
+    connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,  # hosted Postgres drops idle connections
 )
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
