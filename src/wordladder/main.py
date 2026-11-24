@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import logging
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +26,20 @@ from .realtime import hub
 STATIC = Path(__file__).parent / "static"
 COOKIE = "wl_token"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 5
+KEEP_AWAKE_SECONDS = 10 * 60  # Render's free plan sleeps after 15 minutes without visitors
+
+log = logging.getLogger(__name__)
+
+
+async def keep_awake(url: str) -> None:
+    """Visit our own public address now and then, so Render never puts the app to sleep."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            await asyncio.sleep(KEEP_AWAKE_SECONDS)
+            try:
+                await client.get(f"{url}/ping")
+            except httpx.HTTPError:
+                log.warning("Keep-awake ping failed")
 
 
 @asynccontextmanager
@@ -32,9 +48,12 @@ async def lifespan(app: FastAPI):
     for n in engine.LENGTHS:  # build word graphs before the first request
         engine.graph(n)
     push.vapid()
-    reminders = asyncio.create_task(push.reminder_loop())
+    tasks = [asyncio.create_task(push.reminder_loop())]
+    if url := os.environ.get("RENDER_EXTERNAL_URL"):  # set automatically on Render
+        tasks.append(asyncio.create_task(keep_awake(url.rstrip("/"))))
     yield
-    reminders.cancel()
+    for task in tasks:
+        task.cancel()
 
 
 app = FastAPI(title="Word Ladder", lifespan=lifespan)
@@ -469,6 +488,12 @@ async def _broadcast_fresh(code: str) -> None:
         game = db.scalar(select(Game).where(Game.code == code))
         if game:
             await hub.send_state(game)
+
+
+@app.get("/ping")
+def ping():
+    """For the keep-awake visit: no database, so Neon can still sleep between games."""
+    return {"ok": True}
 
 
 @app.get("/healthz")

@@ -100,3 +100,12 @@ def test_outsider_cannot_see_or_join_full_game(client_factory):
 
 def test_stars():
     assert [rules.stars_for(s, 5) for s in (5, 6, 7, 8)] == [3, 2, 2, 1]
+
+
+def test_ping_needs_no_sign_in():
+    from fastapi.testclient import TestClient
+
+    from wordladder.main import app
+
+    with TestClient(app) as c:
+        assert c.get("/ping").json() == {"ok": True}
