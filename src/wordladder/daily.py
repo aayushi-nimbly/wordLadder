@@ -19,7 +19,8 @@ from . import engine, rules
 from .db import Game, GamePlayer, Player
 
 TZ = ZoneInfo("Asia/Kolkata")
-DIFFICULTY = "easy"
+DIFFICULTY = "medium"  # 5–6 steps, so it takes some thinking
+HARDER_FROM = date(2026, 11, 26)  # earlier days stay "easy", so their puzzles and results don't change
 SALT = "wordladder-daily-v2"  # change to reshuffle every future puzzle
 
 
@@ -40,11 +41,15 @@ def length_for(day: date) -> int:
     return random.Random(f"{SALT}:{day.isoformat()}:length").choice(DAILY_LENGTHS)
 
 
+def difficulty_for(day: date) -> str:
+    return DIFFICULTY if day >= HARDER_FROM else "easy"
+
+
 @lru_cache(maxsize=64)
 def puzzle(day: date) -> engine.Puzzle:
     """The same puzzle for everyone on `day`, chosen from the date alone."""
     length = length_for(day)
-    return engine.graph(length).suggest(DIFFICULTY, random.Random(f"{SALT}:{day.isoformat()}:{length}"))
+    return engine.graph(length).suggest(difficulty_for(day), random.Random(f"{SALT}:{day.isoformat()}:{length}"))
 
 
 # ---------- playing ----------
@@ -69,7 +74,7 @@ def open_daily(db: Session, player: Player) -> Game:
         return game
     p = puzzle(day)
     game = Game(
-        code=rules._new_code(db), mode="daily", length=len(p.start), difficulty=DIFFICULTY,
+        code=rules._new_code(db), mode="daily", length=len(p.start), difficulty=difficulty_for(day),
         start_word=p.start, end_word=p.end, par=p.par, status="active", hints_left=0,  # daily hints are per player (see rules.hints_left)
         daily_date=day.isoformat(),
     )

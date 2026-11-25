@@ -44,7 +44,7 @@ def test_same_puzzle_for_everyone_and_changes_daily():
     assert daily.puzzle(DAY + timedelta(days=1)) != p1
     n = daily.length_for(DAY)
     assert len(p1.start) == len(p1.end) == n
-    lo, hi = engine.PAR_RANGES[n][daily.DIFFICULTY]
+    lo, hi = engine.PAR_RANGES[n][daily.difficulty_for(DAY)]
     assert lo <= p1.par <= hi
     # The length varies from day to day, but the daily is never 6 letters.
     assert {daily.length_for(DAY + timedelta(days=i)) for i in range(30)} == {4, 5}
@@ -132,3 +132,12 @@ def test_friends_board(client_factory):
     rows = a.get("/api/leaderboard/friends").json()["rows"]
     assert rows == [{"name": "Riya", "won": 1, "lost": 0, "tied": 0, "team_games": 1, "avg_stars": 3.0}]
     assert b.get("/api/leaderboard/friends").json()["rows"][0]["lost"] == 1
+
+
+def test_harder_from_switch_date_and_past_days_unchanged():
+    before = daily.HARDER_FROM - timedelta(days=1)
+    assert daily.difficulty_for(before) == "easy" and daily.difficulty_for(daily.HARDER_FROM) == "medium"
+    for day in (daily.HARDER_FROM, daily.HARDER_FROM + timedelta(days=1)):
+        lo, hi = engine.PAR_RANGES[daily.length_for(day)]["medium"]
+        assert lo <= daily.puzzle(day).par <= hi
+    assert daily.puzzle(before).par <= engine.PAR_RANGES[daily.length_for(before)]["easy"][1]
